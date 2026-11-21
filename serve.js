@@ -1,5 +1,5 @@
 /*
- * OfferFit 本地静态服务（零依赖 Node 版本，作为 Python 不可用时的备用通道）
+ * OfferFit 本地静态服务（零依赖 Node 版本，Python 不可用时的替代方案）
  * 用法：node serve.js [端口]
  */
 'use strict';
