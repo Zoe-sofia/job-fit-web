@@ -2,6 +2,27 @@
 
 版本号规则：口径不兼容（分数含义变化）升 minor，其余升 patch。契约版本见 [docs/CONTRACT.md](docs/CONTRACT.md)。
 
+## 1.3.0 — 2026-11-21
+
+记录导出的载体从 JSON 换成 **Excel（.xlsx）**，字段、顺序、内容与旧导出完全一致。
+
+**问题**：`.json` 只能整段扔给程序读，人想核对「某岗位第 3 次分析硬性条件是什么」得自己翻文件；也没法筛选排序。
+
+**功能**
+
+- 「导出记录」改为「导出 Excel」，文件名 `offerfit-records-YYYY-MM-DD.xlsx`，MIME 为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- 一个文件十张工作表：导出说明 / 分析记录 / 维度得分 / 硬性条件 / 建议清单 / 视角内容 / 匹配要点 / 技能明细 / 已删除记录 / 记录JSON
+- 「分析记录」列顺序 = record 的键顺序，`job.*` 与 `result.*` 按点号展开，与旧 JSON 一一对应
+- 数组字段各自成表（序号列可还原顺序），表头冻结 + 自动筛选，数值列写成真数字
+- 「记录JSON」保存 `JSON.stringify(payload, null, 2)` 的逐行原文，整列复制另存即可回灌 `data/records.json`
+- 生成过程在浏览器内完成，不引入第三方库、不发起网络请求；失败时按钮回显原因，不影响单份结果的「下载报告」与「复制 JSON」
+
+**结构**：新增 `assets/js/xlsx.js`（零依赖 XLSX 写入器：ZIP store + CRC32 + 最小 OOXML 部件）与 `assets/js/record-export.js`（payload → 工作表映射）；`serve.js` 补 `.xlsx` 的 MIME
+
+**文档**：README 新增导出工作表说明与结构树，USAGE 更新「导出 Excel」小节并补两条 FAQ，CONTRACT 第九节新增导出载体约束（第 6 条），PRIVACY 同步
+
+**测试**：新增 `tests/xlsx.test.mjs` 8 组用例（ZIP 部件与 CRC、表头顺序、数值类型、数组拆表行序、JSON 表可原样拼回、文件名与 MIME、工作表名净化、空记录不抛错）；另用 openpyxl 与真实浏览器下载各验证一次
+
 ## 1.2.0 — 2026-11-21
 
 分析记录改为**追加式**：同一岗位被多次分析、切换不同视角，每次都独立成一条，不再覆盖或只留最新。

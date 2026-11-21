@@ -215,7 +215,8 @@ AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risk
 3. **完整性**：`job.description`（JD 原文）、`result.dimensions`、`result.hardConstraints`、`result.perspective.sections` 必须与当次输出一致；不含简历原文，证据已脱敏。
 4. **序号是算出来的**：列表里的「第 N 次分析」按同 `jobKey` 记录的 `atMs` 正序计算，不写入记录本身，避免删除后序号错乱。
 5. **导出可回读**：`toStore()` 产出 `{schema, updatedAt, count, records, deleted}`，`parseStore()` 必须能原样读回；`deleted` 是删除墓碑，用于阻止仓库基线把已删记录带回来。
-6. 存储：一个键 `offerfit.records.v1`，开启保存写 `localStorage`，关闭只写 `sessionStorage`；两处按 `id` 合并，不互相覆盖。上限 200 条，超出只丢最旧。
+6. **导出载体是 Excel，口径不变**：`assets/js/record-export.js` 把同一个 `toStore()` 结果映射为多张工作表——「分析记录」表的列顺序必须等于 record 的键顺序（对象按点号展开），数组字段各自成表且行序等于数组顺序，「记录JSON」表必须是 `JSON.stringify(payload, null, 2)` 的逐行原文。字段、顺序、内容不得因换载体而变化；数值字段必须写成数字而非文本。
+7. 存储：一个键 `offerfit.records.v1`，开启保存写 `localStorage`，关闭只写 `sessionStorage`；两处按 `id` 合并，不互相覆盖。上限 200 条，超出只丢最旧。
 
 ## 十、改动这份契约
 
@@ -225,6 +226,6 @@ AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risk
 2. 至少一组「同一输入的前后分数对比」
 3. UI 文案同步（配置区说明、页脚、报告导出）
 4. 若改动 `perspective` 结构，需同步 `skills/job-fit` 与页面渲染
-5. 若改动记录结构，需同步 `assets/js/store.js`、`tests/records.test.mjs` 与 `data/records.json` 的 `schema`
+5. 若改动记录结构，需同步 `assets/js/store.js`、`tests/records.test.mjs` 与 `data/records.json` 的 `schema`，以及 `assets/js/record-export.js` 的列定义与 `tests/xlsx.test.mjs` 的顺序断言
 
 版本号递增规则：口径不兼容（分数含义变化）→ 升 minor；仅新增输出字段或措辞修复 → 升 patch；新增字段但不改分数语义时，需在文首写明「兼容性扩展」。当前版本 `1.3.0`。

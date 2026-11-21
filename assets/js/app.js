@@ -15,6 +15,7 @@
   var E = window.OfferFitEngine;
   var IMP = window.OfferFitImport;
   var ST = window.OfferFitStore;
+  var RX = window.OfferFitRecordExport;
 
   var $ = function (id) { return document.getElementById(id); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
@@ -374,7 +375,7 @@
     $('btnClearAll').addEventListener('click', clearAll);
     $('btnClearHist').addEventListener('click', function () {
       if (!S.history.length) { flash(this, '暂无记录'); return; }
-      if (!window.confirm('将删除本机保存的 ' + S.history.length + ' 条分析记录（含各视角与多次分析），操作不可撤销。\n如需留档，请先「导出记录」。是否继续？')) return;
+      if (!window.confirm('将删除本机保存的 ' + S.history.length + ' 条分析记录（含各视角与多次分析），操作不可撤销。\n如需留档，请先「导出 Excel」。是否继续？')) return;
       clearHistory();
       flash(this, '已清除');
     });
@@ -1546,7 +1547,7 @@
       }
       if (ok) {
         S.history = keep;
-        S.histWarn = '本机存储空间不足，最早的 ' + dropped + ' 条记录未能写入；建议先导出记录再清理。';
+        S.histWarn = '本机存储空间不足，最早的 ' + dropped + ' 条记录未能写入；建议先导出 Excel 再清理。';
       } else {
         S.histWarn = '本机存储不可用，本次记录只保留在页面内存中，刷新后会丢失。';
       }
@@ -1937,19 +1938,27 @@
     renderHistory();
   }
 
-  // 导出全部记录：格式与仓库 data/records.json 完全一致，可直接替换后提交
+  // 导出全部记录为 Excel：字段、顺序、内容与原 JSON 导出逐项一致，只换载体
+  // 「分析记录」表的列顺序 = record 的键顺序；数组字段各自成表，行序即数组顺序。
   function exportRecords() {
     if (!S.history.length) { flash($('btnHistExport'), '暂无记录'); return; }
+    if (!RX || typeof RX.build !== 'function') { flash($('btnHistExport'), '导出组件未加载'); return; }
     var payload = ST.toStore(S.history, S.histDeleted, {
       note: 'OfferFit 岗位分析记录。每条记录独立保存岗位快照、视角、生成时间与完整分析结果；可放回仓库 data/records.json 作为基线。'
     });
     payload.exportedAt = new Date().toISOString();
-    var name = 'offerfit-records-' + new Date().toISOString().slice(0, 10) + '.json';
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    var built;
+    try {
+      built = RX.build(payload);
+    } catch (err) {
+      flash($('btnHistExport'), '生成失败：' + ((err && err.message) || '未知错误'));
+      return;
+    }
+    var blob = new Blob([built.bytes], { type: RX.MIME });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = name;
+    a.download = RX.fileName(payload);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1975,7 +1984,7 @@
   }
 
   function clearAll() {
-    if (!window.confirm('将清空简历、岗位信息、分析结果、全部分析记录与本地配置，操作不可撤销。\n如需留档，请先在记录区「导出记录」。API Key 会立即从内存中移除。是否继续？')) return;
+    if (!window.confirm('将清空简历、岗位信息、分析结果、全部分析记录与本地配置，操作不可撤销。\n如需留档，请先在记录区「导出 Excel」。API Key 会立即从内存中移除。是否继续？')) return;
 
     S.resumeRaw = '';
     S.fileName = '';

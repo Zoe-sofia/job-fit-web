@@ -347,7 +347,7 @@
           </div>
           <label class="check"><input type="checkbox" id="optMaskSend" checked><span>AI 模式下发送前脱敏（推荐）</span></label>
           <label class="check"><input type="checkbox" id="optKeep" checked><span>把分析记录保存在本机浏览器</span></label>
-          <p class="hint">默认开启：每条记录独立保存岗位信息（含 JD 原文）、分析视角、生成时间与完整结果，同一岗位的多次分析全部保留，不覆盖、不合并。关闭后新记录只留在当前标签页。记录不含简历原文，可在记录区一键导出或清除。</p>
+          <p class="hint">默认开启：每条记录独立保存岗位信息（含 JD 原文）、分析视角、生成时间与完整结果，同一岗位的多次分析全部保留，不覆盖、不合并。关闭后新记录只留在当前标签页。记录不含简历原文，可在记录区一键导出为 Excel 或清除。</p>
         </section>
       </div>
     </div>
@@ -457,7 +457,7 @@
         <p>按岗位归档：同一岗位的每次分析、每个视角都单独存一条，互不覆盖。点任意一条可查看完整结果，也可载入到表单重新分析。</p>
       </div>
       <div class="card__acts">
-        <button type="button" class="btn btn--ghost btn--sm" id="btnHistExport">导出记录</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="btnHistExport">导出 Excel</button>
         <button type="button" class="btn btn--quiet btn--sm" id="btnClearHist">清除记录</button>
       </div>
     </div>
@@ -496,6 +496,8 @@
 <script src="assets/js/privacy.js" defer></script>
 <script src="assets/js/engine.js" defer></script>
 <script src="assets/js/store.js" defer></script>
+<script src="assets/js/xlsx.js" defer></script>
+<script src="assets/js/record-export.js" defer></script>
 <script src="assets/js/import.js" defer></script>
 <script src="assets/js/app.js" defer></script>
 </body>
