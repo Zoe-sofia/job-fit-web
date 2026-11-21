@@ -5,7 +5,6 @@
 **全部计算在浏览器里完成**——简历不上传、不落盘、不埋点。没有后端，没有构建步骤，没有外部 CDN。
 
 > 在线使用：<https://zoe-sofia.github.io/job-fit-web/>
-> 国内访问不稳定时的镜像：<https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2>（须带 `sharecode` 参数）
 
 ---
 
@@ -36,8 +35,6 @@ OfferFit 把这件事变成可复核的结构化输出：
 ## 快速开始
 
 打开 <https://zoe-sofia.github.io/job-fit-web/>，即可使用。**无需下载、无需安装、无需注册**，手机与电脑都能开。
-
-国内访问不稳定时，改用镜像：<https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2>（链接须带 `sharecode` 参数，首次打开会写入会话 Cookie）。
 
 第一次用建议先看一眼 [docs/USAGE.md](docs/USAGE.md)：怎么贴 JD、哪些字段必填、结果怎么读。
 
