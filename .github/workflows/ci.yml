@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 语法检查
+        run: |
+          for f in assets/js/*.js serve.js; do
+            echo "check $f"
+            node --check "$f"
+          done
+
+      - name: 冒烟测试（评分口径 / 脱敏）
+        run: node --test tests/*.test.mjs
+
+      - name: 防止外部依赖回潮（离线可用是硬约束）
+        run: |
+          if grep -rnE '<script[^>]+src="https?://|<link[^>]+href="https?://' index.html; then
+            echo "::error::检测到外部脚本或样式引用，会破坏离线可用"
+            exit 1
+          fi
+          echo "未发现外部资源引用"

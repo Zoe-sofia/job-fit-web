@@ -1,0 +1,9 @@
+# 默认按文本处理，仓库内统一 LF，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# Windows 启动脚本是 GBK + CRLF，必须原样保留，否则双击运行会乱码/报错
+*.bat -text -diff
+*.vbs -text -diff
+
+# 第三方压缩产物：折叠 diff，语言统计中归为 vendored
+assets/vendor/* linguist-vendored linguist-generated=true -diff

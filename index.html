@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src *; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>OfferFit · 简历岗位匹配分析</title>
+<meta name="description" content="在浏览器本地完成简历与岗位描述的结构化匹配分析：技能明细、经验契合、风险提示与改进建议。">
+<meta name="theme-color" content="#f6f7fb">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%232456f0%27/%3E%3Cpath d=%27M16 6l2.9 7.1L26 16l-7.1 2.9L16 26l-2.9-7.1L6 16l7.1-2.9z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<script src="assets/js/theme.js"></script>
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4l4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9L18 16z" fill="currentColor"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-eyes" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 18h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2h1" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.2 8.2 0 019.5 4 8.5 8.5 0 1020 14.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
+<a class="skip" href="#main">跳到主要内容</a>
+
+<header class="topbar">
+  <div class="wrap topbar__in">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true"><svg><use href="#i-spark"/></svg></span>
+      <span class="brand__txt"><strong>OfferFit</strong><em>简历 · 岗位匹配分析</em></span>
+    </div>
+    <div class="topbar__side">
+      <span class="badge badge--safe"><svg aria-hidden="true"><use href="#i-shield"/></svg><span class="b-full">本地处理 · 密钥不落盘</span><span class="b-short">本地处理</span></span>
+      <button type="button" id="btnTheme" class="iconbtn" aria-label="切换到夜间模式" aria-pressed="false" title="明暗主题切换">
+        <svg class="ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+        <svg class="ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+      </button>
+      <button type="button" id="btnClearAll" class="btn btn--quiet"><svg aria-hidden="true"><use href="#i-trash"/></svg>清除全部数据</button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <section class="hero">
+    <h1>多维透视：简历与岗位精准匹配</h1>
+    <p>按「技能 / 经验 / 协作特质 / 职业方向」四个维度结构化比对，先看硬门槛，后看匹配度，输出缺口与可执行的改进建议。</p>
+    <ul class="hero__pts">
+      <li><b>证据驱动</b>每个结论都回指简历原文片段</li>
+      <li><b>隐私优先</b>敏感字段默认脱敏，密钥仅存于内存</li>
+      <li><b>双引擎</b>本地规则引擎可离线，或接入你自己的模型</li>
+    </ul>
+  </section>
+
+  <div id="alertBar" class="alert" role="alert" aria-live="assertive" hidden>
+    <span class="alert__icon" aria-hidden="true"><svg><use href="#i-alert"/></svg></span>
+    <div class="alert__body">
+      <strong id="alertTitle">请先处理以下问题</strong>
+      <ul id="alertList"></ul>
+    </div>
+    <button type="button" class="alert__close" id="alertClose" aria-label="关闭提示">×</button>
+  </div>
+
+  <div class="input-grid">
+    <!-- ============ 01 简历 ============ -->
+    <section class="card" aria-labelledby="h-resume">
+      <div class="card__head">
+        <span class="step" aria-hidden="true">01</span>
+        <div class="card__title">
+          <h2 id="h-resume">简历内容</h2>
+          <p>支持 PDF / DOCX / TXT，或直接粘贴。文件不会上传到任何服务器。</p>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="简历录入方式">
+        <button type="button" class="tab is-on" role="tab" id="tab-paste" aria-selected="true" aria-controls="panel-paste">粘贴文本</button>
+        <button type="button" class="tab" role="tab" id="tab-file" aria-selected="false" aria-controls="panel-file" tabindex="-1">上传文件</button>
+      </div>
+
+      <div id="panel-paste" class="tabpanel tabpanel--grow" role="tabpanel" aria-labelledby="tab-paste">
+        <label class="sr" for="resumeText">简历正文</label>
+        <div class="tawrap" id="taWrap">
+          <textarea id="resumeText" class="ta ta--lg" rows="12" placeholder="粘贴简历全文：教育背景、工作经历、项目经历、技能清单…&#10;&#10;例：2019.03–2022.06  XX科技有限公司  数据分析师&#10;负责用户增长指标体系建设，独立完成 A/B 实验设计与复盘…" spellcheck="false" aria-describedby="resumeCount resumeErr"></textarea>
+          <div class="tamask" id="taMask" hidden aria-hidden="true">
+            <svg><use href="#i-shield"/></svg>
+            <b>已开启隐私遮罩</b>
+            <span>点击输入框即可查看与编辑，内容不会离开本机</span>
+          </div>
+        </div>
+        <p class="fieldmeta"><span id="resumeCount">0 字</span><span class="dot" aria-hidden="true">·</span><span id="resumeHint">建议 300 字以上</span>
+          <button type="button" class="linkbtn" id="btnShield" aria-pressed="true">隐私遮罩：开</button>
+        </p>
+        <p class="err" id="resumeErr" hidden></p>
+      </div>
+
+      <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+        <label class="drop" id="dropzone" for="resumeFile" tabindex="0">
+          <span class="drop__ico" aria-hidden="true"><svg><use href="#i-upload"/></svg></span>
+          <span class="drop__main">点击选择文件，或拖拽到此处</span>
+          <span class="drop__sub">PDF / DOCX / TXT · 单文件 ≤ 10MB</span>
+          <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md" hidden>
+        </label>
+        <div id="fileInfo" class="fileinfo" hidden></div>
+        <p class="err" id="fileErr" hidden></p>
+        <p class="hint hint--warn" id="protocolHint" hidden>检测到以 file:// 方式打开：PDF 解析线程会被浏览器拦截。请双击目录中的「启动应用.vbs」用本地服务打开；DOCX / TXT 与粘贴文本不受影响。</p>
+      </div>
+
+      <div class="privacy" id="privacyBox" hidden>
+        <div class="privacy__top">
+          <span class="privacy__label"><svg aria-hidden="true"><use href="#i-shield"/></svg>隐私视图</span>
+          <span id="maskStat" class="privacy__stat">—</span>
+          <button type="button" class="btn btn--tiny" id="btnToggleMask" aria-pressed="true"><svg aria-hidden="true"><use href="#i-eyes"/></svg><span id="maskBtnTxt">显示原文</span></button>
+        </div>
+        <pre id="resumePreview" class="preview" tabindex="0" aria-label="简历内容预览（已脱敏）"></pre>
+        <p class="privacy__note">默认隐藏手机号、邮箱、证件号、详细住址等信息；显示原文仅作用于当前页面，不会写入存储。</p>
+      </div>
+    </section>
+
+    <!-- ============ 02 岗位 ============ -->
+    <section class="card" aria-labelledby="h-job">
+      <div class="card__head">
+        <span class="step" aria-hidden="true">02</span>
+        <div class="card__title">
+          <h2 id="h-job">岗位信息</h2>
+          <p>带 <span class="req">*</span> 为必填，选填项会让判断更准。</p>
+        </div>
+        <button type="button" class="btn btn--quiet btn--sm" id="btnClearJob" title="清空岗位名称、公司、地点、薪资、描述与全部选填信息，不影响简历与其余内容"><svg aria-hidden="true"><use href="#i-trash"/></svg>一键清除</button>
+      </div>
+
+      <div class="fields">
+        <div class="field">
+          <label for="jobTitle">岗位名称 <span class="req">*</span></label>
+          <input id="jobTitle" type="text" placeholder="如：高级前端工程师" autocomplete="off" aria-describedby="err-jobTitle">
+          <p class="err" id="err-jobTitle" hidden></p>
+        </div>
+        <div class="field">
+          <label for="company">公司名称 <span class="req">*</span></label>
+          <input id="company" type="text" placeholder="如：深圳市鹏城信息技术有限公司" autocomplete="off" aria-describedby="err-company">
+          <p class="err" id="err-company" hidden></p>
+        </div>
+        <div class="field">
+          <label for="location">工作地点 <span class="req">*</span></label>
+          <input id="location" type="text" placeholder="如：深圳 · 南山区" autocomplete="off" aria-describedby="err-location">
+          <p class="err" id="err-location" hidden></p>
+        </div>
+        <div class="field">
+          <label for="salary">薪资范围 <span class="req">*</span></label>
+          <input id="salary" type="text" placeholder="如：20-35K·14薪" autocomplete="off" aria-describedby="err-salary">
+          <p class="err" id="err-salary" hidden></p>
+        </div>
+      </div>
+
+      <div class="field field--grow" id="fieldDesc">
+        <label for="description">岗位描述 <span class="req">*</span><span class="labelnote">职责 + 要求</span></label>
+        <textarea id="description" class="ta" rows="8" placeholder="粘贴 JD 原文：&#10;岗位职责：&#10;1. 负责…&#10;任职要求：&#10;1. 本科及以上，3 年以上…&#10;2. 熟悉 Vue / React…" spellcheck="false" aria-describedby="descCount err-description"></textarea>
+        <p class="fieldmeta"><span id="descCount">0 字</span><span class="dot" aria-hidden="true">·</span><span>可直接粘贴原始 JD，无需整理</span></p>
+        <p class="err" id="err-description" hidden></p>
+      </div>
+
+      <details class="more" id="moreFields">
+        <summary><span>选填信息</span><em>公司规模 / 经验 / 学历 / 技能 / 福利 / 来源 / 行业 / 法人</em><svg aria-hidden="true"><use href="#i-chev"/></svg></summary>
+        <div class="fields fields--tight">
+          <div class="field">
+            <label for="companySize">公司规模</label>
+            <input id="companySize" type="text" list="sizeList" placeholder="如：500-999 人">
+            <datalist id="sizeList">
+              <option value="0-20 人"></option><option value="20-99 人"></option><option value="100-499 人"></option>
+              <option value="500-999 人"></option><option value="1000-9999 人"></option><option value="10000 人以上"></option>
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="expRequirement">经验筛选</label>
+            <input id="expRequirement" type="text" placeholder="如：3-5 年">
+          </div>
+          <div class="field">
+            <label for="eduRequirement">学历筛选</label>
+            <input id="eduRequirement" type="text" list="eduList" placeholder="如：本科及以上">
+            <datalist id="eduList">
+              <option value="不限"></option><option value="大专"></option><option value="本科"></option>
+              <option value="硕士"></option><option value="博士"></option>
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="skillsRequired">技能筛选<span class="labelnote">英文逗号分隔</span></label>
+            <input id="skillsRequired" type="text" placeholder="如：Vue, TypeScript, 性能优化">
+          </div>
+          <div class="field">
+            <label for="benefits">福利筛选</label>
+            <input id="benefits" type="text" placeholder="如：双休, 六险一金, 弹性工作">
+          </div>
+          <div class="field">
+            <label for="industry">行业</label>
+            <input id="industry" type="text" placeholder="如：企业服务 / SaaS">
+          </div>
+          <div class="field">
+            <label for="sourceUrl">岗位来源链接</label>
+            <input id="sourceUrl" type="url" placeholder="https://…" inputmode="url" aria-describedby="err-sourceUrl">
+            <p class="err" id="err-sourceUrl" hidden></p>
+          </div>
+          <div class="field">
+            <label for="legalEntity">法人 / 招聘主体</label>
+            <input id="legalEntity" type="text" placeholder="如：XX 科技有限公司">
+          </div>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <!-- ============ 03 设置 ============ -->
+  <section class="card card--wide" aria-labelledby="h-set">
+    <div class="card__head">
+      <span class="step" aria-hidden="true">03</span>
+      <div class="card__title">
+        <h2 id="h-set">分析配置</h2>
+        <p>维度权重、评分阈值与输出格式均可调整；不修改则使用默认规则。</p>
+      </div>
+      <button type="button" class="btn btn--quiet btn--sm" id="btnResetSet">恢复默认</button>
+    </div>
+
+    <section class="mod mod--engine" aria-labelledby="h-engine">
+      <div class="mod__head">
+        <h3 id="h-engine">分析引擎</h3>
+        <span class="mod__note">决定结果由谁生成，可随时切换</span>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="分析引擎">
+        <label class="seg"><input type="radio" name="engine" value="local" checked><span><b>本地规则引擎</b><em>离线可跑，无需密钥</em></span></label>
+        <label class="seg"><input type="radio" name="engine" value="api"><span><b>AI 模型 API</b><em>兼容 OpenAI 协议</em></span></label>
+      </div>
+      <p class="hint">本地引擎按关键词、年限、学历、地点与薪资规则计算，完全离线、结果可复现；AI 模式会把岗位信息与<b>已脱敏</b>的简历发送到你指定的接口，用于生成更自然的评语。</p>
+
+      <div id="apiBox" class="apibox" hidden>
+        <div class="field">
+          <label for="apiBase">接口地址 Base URL <span class="req">*</span></label>
+          <input id="apiBase" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" aria-describedby="err-apiBase">
+          <p class="err" id="err-apiBase" hidden></p>
+        </div>
+        <div class="field">
+          <label for="apiModel">模型名称 <span class="req">*</span></label>
+          <input id="apiModel" type="text" placeholder="如：gpt-4o-mini / deepseek-chat" autocomplete="off" spellcheck="false" aria-describedby="err-apiModel">
+          <p class="err" id="err-apiModel" hidden></p>
+        </div>
+        <div class="field">
+          <label for="apiKey">API Key <span class="req" id="keyReq">*</span></label>
+          <div class="keywrap">
+            <input id="apiKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" data-lpignore="true" data-1p-ignore aria-describedby="keyNote err-apiKey">
+            <button type="button" class="btn btn--tiny" id="btnToggleKey" aria-pressed="false" aria-label="显示密钥">显示</button>
+          </div>
+          <p class="hint" id="keyNote">仅保存在当前页面的内存变量中：不写入 localStorage / sessionStorage，不进入日志，不随分析结果输出。</p>
+          <label class="check check--sm"><input type="checkbox" id="apiNoKey"><span>该接口无需密钥（如本地 Ollama）</span></label>
+          <p class="err" id="err-apiKey" hidden></p>
+        </div>
+        <div class="apibox__foot">
+          <button type="button" class="btn btn--ghost btn--sm" id="btnTestApi">测试连接</button>
+          <span id="apiStatus" class="apistat" aria-live="polite"></span>
+        </div>
+        <p class="hint hint--warn">浏览器直连第三方接口需要对方允许跨域（CORS）。若被拦截，请改用同源中转地址，或切回本地引擎。</p>
+      </div>
+    </section>
+
+    <div class="setgrid">
+      <div class="setcol">
+        <section class="mod" aria-labelledby="h-dims">
+          <div class="mod__head">
+            <h3 id="h-dims">匹配维度与权重</h3>
+            <span class="wsum" id="wSum">合计 100</span>
+          </div>
+          <div class="dims" id="dims"></div>
+          <div class="dimfoot">
+            <button type="button" class="btn btn--quiet btn--sm" id="btnNormW">按比例归一到 100</button>
+            <p class="err" id="err-weights" hidden></p>
+          </div>
+        </section>
+
+        <section class="mod" aria-labelledby="h-score">
+          <div class="mod__head">
+            <h3 id="h-score">评分标准</h3>
+            <span class="mod__note">阈值需严格递减</span>
+          </div>
+          <div class="thgrid">
+            <div class="field"><label for="thStrong">强匹配 ≥</label><input id="thStrong" type="number" min="1" max="100" step="1" value="75"></div>
+            <div class="field"><label for="thGood">良好 ≥</label><input id="thGood" type="number" min="1" max="100" step="1" value="60"></div>
+            <div class="field"><label for="thModerate">一般 ≥</label><input id="thModerate" type="number" min="1" max="100" step="1" value="45"></div>
+          </div>
+          <p class="hint">低于「一般」阈值判为偏弱；任一硬性条件不通过时，最终匹配度以 44 分为上限（只降不升，加权分本就更低时保持原分）。另给出「不考虑硬性条件约束的综合评分」：同一套全维度加权，只是不施加 44 分封顶。</p>
+          <h4 class="sub">硬性条件校验</h4>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="hcLocation" checked><span>工作地点</span></label>
+            <label class="check"><input type="checkbox" id="hcExperience" checked><span>经验年限</span></label>
+            <label class="check"><input type="checkbox" id="hcEducation" checked><span>学历门槛</span></label>
+            <label class="check"><input type="checkbox" id="hcSkills" checked><span>核心技能覆盖</span></label>
+            <label class="check"><input type="checkbox" id="hcSalary" checked><span>薪资期望</span></label>
+          </div>
+        </section>
+      </div>
+
+      <div class="setcol">
+        <section class="mod" aria-labelledby="h-fmt">
+          <div class="mod__head">
+            <h3 id="h-fmt">输出格式</h3>
+            <span class="mod__note">影响结果区展示</span>
+          </div>
+          <div class="radios">
+            <label class="radio"><input type="radio" name="outfmt" value="detailed" checked><span><b>详细报告</b><em>全部明细 + 证据</em></span></label>
+            <label class="radio"><input type="radio" name="outfmt" value="brief"><span><b>精简结论</b><em>分数 + 关键缺口</em></span></label>
+            <label class="radio"><input type="radio" name="outfmt" value="json"><span><b>结构化 JSON</b><em>便于二次处理</em></span></label>
+          </div>
+        </section>
+
+        <section class="mod" aria-labelledby="h-pref">
+          <div class="mod__head">
+            <h3 id="h-pref">求职偏好</h3>
+            <span class="mod__note">选填，用于硬性条件判定</span>
+          </div>
+          <div class="fields fields--tight">
+            <div class="field"><label for="prefCity">期望城市</label><input id="prefCity" type="text" placeholder="如：深圳"></div>
+            <div class="field"><label for="prefSalary">期望月薪</label><input id="prefSalary" type="text" placeholder="如：25K 或 20-30K"></div>
+          </div>
+          <p class="hint">填写后可用于判断地点是否匹配、薪资是否达标；不填则这两项标记为「未知」。</p>
+        </section>
+
+        <section class="mod" aria-labelledby="h-priv">
+          <div class="mod__head">
+            <h3 id="h-priv">隐私与记录</h3>
+          </div>
+          <label class="check"><input type="checkbox" id="optMaskSend" checked><span>AI 模式下发送前脱敏（推荐）</span></label>
+          <label class="check"><input type="checkbox" id="optKeep"><span>在本标签页内保留完整分析记录</span></label>
+          <p class="hint">开启后会完整保存岗位信息（含 JD 原文）与本次分析结果，不保存简历原文；仅存于 sessionStorage，关闭标签页即失效，可随时一键清除。</p>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div class="runbar">
+    <div class="runbar__meta">
+      <span id="runHint">本地引擎 · 无需密钥 · 约 1 秒完成</span>
+    </div>
+    <button type="button" class="btn btn--primary btn--lg" id="btnAnalyze">
+      <svg aria-hidden="true"><use href="#i-spark"/></svg><span id="btnAnalyzeTxt">开始匹配分析</span>
+    </button>
+  </div>
+
+  <!-- ============ 结果 ============ -->
+  <section id="results" class="results" aria-labelledby="h-res" tabindex="-1" hidden>
+    <div class="res-head">
+      <h2 id="h-res">分析结果</h2>
+      <div class="res-head__acts">
+        <button type="button" class="btn btn--quiet btn--sm" id="btnCopy"><svg aria-hidden="true"><use href="#i-copy"/></svg>复制 JSON</button>
+        <button type="button" class="btn btn--quiet btn--sm" id="btnMd"><svg aria-hidden="true"><use href="#i-dl"/></svg>下载报告</button>
+      </div>
+    </div>
+
+    <div class="scorecard">
+      <div class="ring" id="ring" role="img" aria-label="匹配度">
+        <div class="ring__in"><b id="scoreNum">0</b><span>匹配度</span></div>
+      </div>
+      <div class="scorecard__main">
+        <div class="vrow">
+          <span class="verdict" id="verdict">—</span>
+          <span class="conf" id="conf">置信度 —</span>
+        </div>
+        <p class="rec" id="rec">—</p>
+        <p class="sum" id="sum"></p>
+        <div class="scorealt" id="scoreAlt">
+          <span class="scorealt__k">不考虑硬性条件约束的综合评分</span>
+          <b class="scorealt__n" id="scoreAltNum">—</b>
+          <span class="scorealt__d" id="scoreAltDesc">全维度加权，未应用硬性条件封顶</span>
+        </div>
+        <div class="kpis" id="kpis"></div>
+      </div>
+    </div>
+    <p class="resnote" id="resNote" hidden></p>
+
+    <div class="panelgrid">
+      <div class="panel">
+        <h3>维度评分</h3>
+        <div id="dimList" class="dimlist"></div>
+      </div>
+      <div class="panel">
+        <h3>硬性条件</h3>
+        <ul id="hcList" class="hclist"></ul>
+        <h3 class="mt">风险提示</h3>
+        <ul id="riskList" class="bullets bullets--risk"></ul>
+      </div>
+    </div>
+
+    <div class="panel" id="skillPanel">
+      <h3>技能匹配明细 <span class="h3note" id="skillStat"></span></h3>
+      <div class="tablewrap">
+        <table class="tbl">
+          <thead><tr><th scope="col">要求项</th><th scope="col">简历证据</th><th scope="col">判定</th></tr></thead>
+          <tbody id="skillBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panelgrid" id="fitGrid">
+      <div class="panel">
+        <h3>经验契合点</h3>
+        <ul id="fitList" class="bullets"></ul>
+      </div>
+      <div class="panel">
+        <h3>能力缺口</h3>
+        <ul id="gapList" class="bullets bullets--gap"></ul>
+      </div>
+    </div>
+
+    <div class="panel" id="advicePanel">
+      <h3>改进建议</h3>
+      <ol id="adviceList" class="advice"></ol>
+    </div>
+
+    <div class="panel" id="jsonPanel" hidden>
+      <h3>结构化输出</h3>
+      <pre class="json" id="jsonOut"></pre>
+    </div>
+  </section>
+
+  <section class="card card--wide history" id="historyCard" hidden>
+    <div class="card__head">
+      <span class="step step--ghost" aria-hidden="true">↺</span>
+      <div class="card__title"><h2>本次会话的分析记录</h2><p>完整保存岗位信息与分析结果，仅存于 sessionStorage，关闭标签页即清空。</p></div>
+      <button type="button" class="btn btn--quiet btn--sm" id="btnClearHist">清除记录</button>
+    </div>
+    <ul id="histList" class="histlist"></ul>
+  </section>
+
+  <p class="disclaimer" id="disclaimer" hidden>结果由规则引擎或所配置模型生成，仅作为投递决策参考。请自行核实公司信息与岗位真实性；不要在简历中保留不必要的敏感信息。</p>
+</main>
+
+<dialog id="histDlg" class="dlg" aria-labelledby="histDlgTitle">
+  <div class="dlg__head">
+    <div class="dlg__title">
+      <h3 id="histDlgTitle">分析记录</h3>
+      <p class="dlg__sub" id="histDlgSub"></p>
+    </div>
+    <button type="button" class="dlg__close" id="btnHistClose" aria-label="关闭记录详情">×</button>
+  </div>
+  <div class="dlg__body" id="histDlgBody"></div>
+  <div class="dlg__foot">
+    <button type="button" class="btn btn--ghost btn--sm" id="btnHistLoad">载入到表单</button>
+    <button type="button" class="btn btn--quiet btn--sm" id="btnHistDel">删除此条记录</button>
+  </div>
+</dialog>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>OfferFit · 纯前端应用，不包含任何后端服务与埋点。解析库已本地打包，可离线使用。</p>
+    <p class="foot__dim">分析规则参考 job-fit 契约（v1.2.0）：技术 30 / 经验 25 / 协作 15 / 方向 30，硬性条件不计入加权；任一硬性条件未通过时匹配度以 44 分为上限（只降不升）。另给出「不考虑硬性条件约束的综合评分」：同一套全维度加权、不施加封顶。</p>
+  </div>
+</footer>
+
+<script src="assets/vendor/pdf.min.js" defer></script>
+<script src="assets/vendor/mammoth.browser.min.js" defer></script>
+<script src="assets/js/privacy.js" defer></script>
+<script src="assets/js/engine.js" defer></script>
+<script src="assets/js/import.js" defer></script>
+<script src="assets/js/app.js" defer></script>
+</body>
+</html>

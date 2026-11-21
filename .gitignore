@@ -1,0 +1,26 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# 运行产物与日志
+*.log
+*.tmp
+*.bak
+node_modules/
+dist/
+coverage/
+
+# 本地私有文件（切勿提交）
+.env
+.env.*
+*.key
+*.pem
+config.local.json
+.resume_tmp.txt
+
+# 技能/工具的项目级配置（可能含本机路径）
+.github-push.json
