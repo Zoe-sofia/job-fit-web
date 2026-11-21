@@ -7,9 +7,9 @@
 | 入口 | 地址 | 说明 |
 |---|---|---|
 | GitHub Pages（主站） | <https://zoe-sofia.github.io/job-fit-web/> | 已启用（Source: **GitHub Actions**），push `main` 自动发布 |
-| WorkBuddy 托管（国内备用） | <https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2> | 首次访问会写入会话 Cookie，之后资源正常加载；分享链接需带上 `sharecode` 参数 |
+| EdgeOne Makers（国内备用） | `https://<项目名>.edgeone.app`（部署后回填） | 腾讯云边缘托管，默认域名中性、免备案；须把加速区域选为**含中国大陆** |
 
-> 两个入口跑的是同一份代码。国内访问不稳定时用备用入口。
+> 两个入口跑的是同一份代码。国内访问 GitHub Pages 不稳定时用备用入口。此前的 WorkBuddy 托管镜像已不再作为对外入口。
 
 ## 一、GitHub Pages（当前主站）
 
@@ -53,13 +53,15 @@ GlobalWorkerOptions.workerSrc = base + 'assets/vendor/pdf.worker.min.js';
 
 `*.github.io` 在国内的连通性不稳定，而本项目的用户正是中文求职者。**建议至少准备一个备用入口。**
 
-| 方案 | 国内速度 | 成本 | 备案 | 适用 |
+首选 **EdgeOne Makers（腾讯云）**：默认域名形如 `<项目名>.edgeone.app`，不带任何第三方产品名、默认域名无需备案，选对加速区域后国内速度明显好于 GitHub Pages，个人项目免费额度够用。
+
+| 方案 | 默认域名 | 国内速度 | 备案 | 备注 |
 |---|---|---|---|---|
-| GitHub Pages | 不稳定 | 免费 | 不需要 | 开源默认入口、海外访问 |
-| Cloudflare Pages | 一般 | 免费额度够用 | 不需要 | 连 GitHub 自动部署，绑定自有域名最省事 |
-| Vercel / Netlify | 一般偏慢 | 免费额度够用 | 不需要 | 同上，构建配置留空即可 |
-| 腾讯云 EdgeOne Pages | 快 | 有免费额度 | 绑定自有域名需备案 | 国内主入口 |
-| 对象存储 + CDN（COS/OSS） | 快 | 按量计费，很低 | **必须** | 追求稳定与可控 |
+| GitHub Pages | `<用户名>.github.io` | 不稳定 | 不需要 | 主站，与仓库同源、零配置 |
+| **EdgeOne Makers** | `<项目名>.edgeone.app` | 快（须选含大陆区域） | 默认域名不需要 | **首选备用入口** |
+| Cloudflare Pages | `<项目名>.pages.dev` | 一般 | 不需要 | 连 Git 自动部署，配合自有域名最省事 |
+| Vercel / Netlify | `<项目名>.vercel.app` | 一般偏慢 | 不需要 | 同上，构建配置留空即可 |
+| 对象存储 + CDN（COS/OSS） | 自有域名 | 快 | **必须** | 追求稳定与可控 |
 
 ### 备案是硬约束
 
@@ -67,17 +69,47 @@ GlobalWorkerOptions.workerSrc = base + 'assets/vendor/pdf.worker.min.js';
 
 不想备案的可行路径：
 
-- 用平台分配的默认域名（`*.pages.dev`、`*.edgeone.app` 等）——通常无需备案，但域名不好看、也可能被限速。
-- 主站留 GitHub Pages，国内用户走镜像域名（无自有域名则用平台默认域名）。
+- 用平台分配的默认域名（`*.edgeone.app`、`*.pages.dev` 等）——通常无需备案，但可能被限速。
+- 主站留 GitHub Pages，国内用户走默认域名做的备用入口。
 
-### 镜像部署步骤（以 Cloudflare Pages 为例）
+### EdgeOne Makers 部署步骤（当前备用入口）
+
+**方式 A：控制台连 Git，push 自动部署（推荐）**
+
+1. 打开 <https://console.cloud.tencent.com/edgeone/pages>，开通 Pages（免费，不扣费）
+2. 新建项目 → 关联 Git 仓库，授权后选 `Zoe-sofia/job-fit-web`，分支 `main`
+3. 框架预设选「静态站点 / 其他」，**构建命令留空**，**输出目录填 `/`**（本项目零构建，根目录即产物）
+4. **加速区域选「中国大陆」或「全球（含中国大陆）」**——这一项直接决定国内能否打开，选错了国内会返回 401
+5. 部署，拿到 `https://<项目名>.edgeone.app`
+
+之后每次 push `main` 自动重新部署。
+
+**方式 B：CLI 直接上传（不连仓库，适合一次性的临时预览）**
+
+```bash
+npm i -g edgeone
+edgeone login --site china     # 浏览器授权一次
+edgeone makers deploy .        # 在仓库根目录执行
+```
+
+CLI 部署拿到的是临时预览域名，**长期使用请走方式 A**（临时域名可能失效）。
+
+**已知坑**
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 国内打开 401 | 加速区域选了「全球可用区（不含中国大陆）」 | 改成含中国大陆的区域后重新部署 |
+| 改完不生效 | 边缘缓存 | 在部署记录里手动「重新部署」 |
+| 绑定自有域名报错 | 域名已在其它腾讯云加速产品中 | 先从 CDN / 旧 EdgeOne 删除该域名 |
+
+### 备选：Cloudflare Pages
 
 1. Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git
 2. 选本仓库，分支 `main`
 3. **Build command 留空**，**Build output directory 填 `/`**
 4. Deploy，拿到 `https://<项目名>.pages.dev`
 
-每次 push 到 `main` 会自动重新部署。其它平台同理：构建命令留空、输出目录为根。
+其它静态托管同理：构建命令留空、输出目录为根。
 
 ## 四、部署后验收
 

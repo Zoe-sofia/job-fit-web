@@ -24,3 +24,8 @@ config.local.json
 
 # 技能/工具的项目级配置（可能含本机路径）
 .github-push.json
+
+# Tencent Cloud EdgeOne（CLI 会自动追加，含项目绑定与凭据，勿入库）
+.env
+.edgeone/*
+.tef_dist/*
