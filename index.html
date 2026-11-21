@@ -346,8 +346,8 @@
             <h3 id="h-priv">隐私与记录</h3>
           </div>
           <label class="check"><input type="checkbox" id="optMaskSend" checked><span>AI 模式下发送前脱敏（推荐）</span></label>
-          <label class="check"><input type="checkbox" id="optKeep"><span>在本标签页内保留完整分析记录</span></label>
-          <p class="hint">开启后会完整保存岗位信息（含 JD 原文）与本次分析结果，不保存简历原文；仅存于 sessionStorage，关闭标签页即失效，可随时一键清除。</p>
+          <label class="check"><input type="checkbox" id="optKeep" checked><span>把分析记录保存在本机浏览器</span></label>
+          <p class="hint">默认开启：每条记录独立保存岗位信息（含 JD 原文）、分析视角、生成时间与完整结果，同一岗位的多次分析全部保留，不覆盖、不合并。关闭后新记录只留在当前标签页。记录不含简历原文，可在记录区一键导出或清除。</p>
         </section>
       </div>
     </div>
@@ -452,9 +452,17 @@
   <section class="card card--wide history" id="historyCard" hidden>
     <div class="card__head">
       <span class="step step--ghost" aria-hidden="true">↺</span>
-      <div class="card__title"><h2>本次会话的分析记录</h2><p>完整保存岗位信息与分析结果，仅存于 sessionStorage，关闭标签页即清空。</p></div>
-      <button type="button" class="btn btn--quiet btn--sm" id="btnClearHist">清除记录</button>
+      <div class="card__title">
+        <h2>岗位分析记录</h2>
+        <p>按岗位归档：同一岗位的每次分析、每个视角都单独存一条，互不覆盖。点任意一条可查看完整结果，也可载入到表单重新分析。</p>
+      </div>
+      <div class="card__acts">
+        <button type="button" class="btn btn--ghost btn--sm" id="btnHistExport">导出记录</button>
+        <button type="button" class="btn btn--quiet btn--sm" id="btnClearHist">清除记录</button>
+      </div>
     </div>
+    <p class="histstat" id="histStat"></p>
+    <p class="histwarn" id="histWarn" hidden></p>
     <ul id="histList" class="histlist"></ul>
   </section>
 
@@ -487,6 +495,7 @@
 <script src="assets/vendor/mammoth.browser.min.js" defer></script>
 <script src="assets/js/privacy.js" defer></script>
 <script src="assets/js/engine.js" defer></script>
+<script src="assets/js/store.js" defer></script>
 <script src="assets/js/import.js" defer></script>
 <script src="assets/js/app.js" defer></script>
 </body>

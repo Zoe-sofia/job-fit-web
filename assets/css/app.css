@@ -198,6 +198,9 @@ button{font:inherit;color:inherit}
 .card--wide{margin-top:18px}
 .card__head{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
 .card__head .btn{margin-left:auto;flex:0 0 auto}
+.card__head > .btn{margin-left:auto;flex:0 0 auto}
+.card__acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:0 0 auto}
+.card__acts .btn{margin-left:0}
 .card__title{min-width:0;flex:1}
 .card__title h2{font-size:16.5px}
 .card__title p{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.55}
@@ -480,10 +483,19 @@ button{font:inherit;color:inherit}
 
 /* ============ history ============ */
 .history{margin-top:16px}
-.histlist{display:grid;gap:8px}
+.histstat{margin:-6px 0 14px;font-size:11.5px;color:var(--ink-3);line-height:1.6}
+.histwarn{margin:0 0 12px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--amber-soft);color:var(--ink-2);font-size:11.5px;line-height:1.6}
+.histlist{display:grid;gap:16px}
 .histlist li{min-width:0}
-.histitem{width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:11px 13px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);cursor:pointer;transition:background .16s,border-color .16s}
+.histgroup__head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:0 2px 7px;border-bottom:1px solid var(--line-2)}
+.histgroup__t{font-size:13.5px;font-weight:600;line-height:1.4;min-width:0}
+.histgroup__t em{font-style:normal;font-weight:500;color:var(--ink-3);font-size:12px;margin-left:7px}
+.histgroup__m{font-size:11.5px;color:var(--ink-3);margin-left:auto;line-height:1.5}
+.histgroup__list{display:grid;gap:8px;margin-top:9px}
+.histitem{width:100%;display:flex;align-items:center;gap:11px;text-align:left;padding:10px 13px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);cursor:pointer;transition:background .16s,border-color .16s}
 .histitem:hover{border-color:var(--brand-line);background:var(--brand-soft)}
+.histitem__role{flex:0 0 auto;font-size:10.5px;line-height:1.7;padding:1px 8px;border-radius:999px;border:1px solid var(--brand-line);background:var(--brand-soft);color:var(--brand);white-space:nowrap}
+.histitem__role--iv{border-color:var(--line);background:var(--surface-3);color:var(--ink-2)}
 .histitem__main{flex:1;min-width:0}
 .histitem__t{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .histitem__m{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-3);margin-top:3px;line-height:1.5}
@@ -603,6 +615,13 @@ button{font:inherit;color:inherit}
   .kv{grid-template-columns:1fr}
   .kv>div{border-right:0}
   .histitem__sc b{font-size:17px}
+  .card__head{flex-wrap:wrap}
+  .card__acts{margin-left:0;width:100%;justify-content:flex-start}
+  .card__acts .btn{flex:1}
+  .histgroup__m{margin-left:0;width:100%}
+  /* 窄屏标题里已写明视角，徽标可省，给正文让出宽度 */
+  .histitem__role{display:none}
+  .histitem{gap:9px;padding:10px 11px}
 }
 @media (max-width:420px){
   .brand__txt strong{font-size:15px}

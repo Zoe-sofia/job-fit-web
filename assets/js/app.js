@@ -4,7 +4,9 @@
    1) API Key 只存在于本模块的闭包变量中，不写 localStorage / sessionStorage，
       不进入 console，不进入 DOM 文本（输入框外），不随报告导出。
    2) 简历原文只在本页内存中；发送给模型前默认脱敏。
-   3) 记录默认不保存；开启后仅写 sessionStorage，且可一键清除。
+   3) 分析记录每次都独立追加保存：同一岗位的多次分析、同一结果的多个视角
+      都是各自一条记录，只按记录 id 去重，不按岗位覆盖或合并。
+      默认写入 localStorage（可关掉改为仅本标签页的 sessionStorage），可一键清除。
    ============================================================ */
 (function () {
   'use strict';
@@ -12,12 +14,14 @@
   var P = window.OfferFitPrivacy;
   var E = window.OfferFitEngine;
   var IMP = window.OfferFitImport;
+  var ST = window.OfferFitStore;
 
   var $ = function (id) { return document.getElementById(id); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
   var LS_CFG = 'offerfit.config.v1';
-  var SS_HIST = 'offerfit.session.v1';
+  var REC_KEY = 'offerfit.records.v1';       // 记录库：两个存储位置共用同一个键
+  var LEGACY_HIST = 'offerfit.session.v1';   // 旧版会话记录，启动时一次性迁移
 
   var S = {
     resumeRaw: '',
@@ -27,7 +31,7 @@
     engine: 'local',
     apiKey: '',
     maskSend: true,
-    keepHist: false,
+    keepHist: true,
     outfmt: 'detailed',
     perspective: 'candidate',
     dims: [],
@@ -37,6 +41,9 @@
     result: null,
     resultSig: '',
     history: [],
+    histDeleted: [],
+    histWarn: '',
+    repoTried: false,
     busy: false
   };
 
@@ -55,6 +62,7 @@
       return { key: d.key, label: d.label, weight: d.weight, on: true, hint: d.hint };
     });
     restoreConfig();
+    S.history = loadStoredRecords();
     renderDims();
     bind();
     syncSettingsUI();
@@ -65,6 +73,7 @@
     updateShield();
     syncTheme();
     renderHistory();
+    loadRepoBaseline();
   }
 
   /* ================= 主题 ================= */
@@ -309,8 +318,11 @@
     $('optKeep').addEventListener('change', function () {
       S.keepHist = this.checked;
       saveConfig();
-      if (!S.keepHist) { S.history = []; try { sessionStorage.removeItem(SS_HIST); } catch (e) {} renderHistory(); }
-      else if (S.result) pushHistory(S.result);
+      // 切换存储位置：开→本机长期保存；关→仅本标签页有效。已有记录一条不丢。
+      if (this.checked) S.history = ST.merge(S.history, loadStoredRecords());
+      persistHistory();
+      renderHistory();
+      if (S.result && !hasRecordFor(S.result)) pushHistory(S.result);
     });
     ['prefCity', 'prefSalary'].forEach(function (id) {
       $(id).addEventListener('input', function () { S.prefs[id === 'prefCity' ? 'city' : 'salary'] = this.value; });
@@ -347,11 +359,12 @@
     $('histList').addEventListener('click', function (e) {
       var b = e.target.closest ? e.target.closest('.histitem') : null;
       if (!b) return;
-      openHist(Number(b.getAttribute('data-idx')));
+      openHist(b.getAttribute('data-id'));
     });
     $('btnHistClose').addEventListener('click', closeHist);
     $('btnHistLoad').addEventListener('click', function () { loadHist(histSel); });
     $('btnHistDel').addEventListener('click', function () { delHist(histSel); });
+    $('btnHistExport').addEventListener('click', exportRecords);
     $('histDlg').addEventListener('click', function (e) { if (e.target === this) closeHist(); });
     $('histDlg').addEventListener('close', function () { histSel = null; });
 
@@ -360,9 +373,10 @@
     $('btnClearJob').addEventListener('click', clearJob);
     $('btnClearAll').addEventListener('click', clearAll);
     $('btnClearHist').addEventListener('click', function () {
-      S.history = [];
-      try { sessionStorage.removeItem(SS_HIST); } catch (e) {}
-      renderHistory();
+      if (!S.history.length) { flash(this, '暂无记录'); return; }
+      if (!window.confirm('将删除本机保存的 ' + S.history.length + ' 条分析记录（含各视角与多次分析），操作不可撤销。\n如需留档，请先「导出记录」。是否继续？')) return;
+      clearHistory();
+      flash(this, '已清除');
     });
   }
 
@@ -436,7 +450,8 @@
       applyFormat();
       $('runHint').textContent = (S.result.meta && S.result.meta.engine === 'api' ? 'AI 模型 · ' : '本地引擎 · ') +
         '已切换为「' + m.label + '」，建议段落已更新（分数不变）';
-      if (S.keepHist) pushHistory(S.result);
+      // 切换视角也是一次独立分析：单独成一条记录，不覆盖原来那条
+      pushHistory(S.result);
     } catch (e) {
       $('runHint').textContent = '已切换为「' + m.label + '」，重新分析后报告会按该视角生成';
     }
@@ -1101,7 +1116,8 @@
     applyFormat();
     res.scrollIntoView({ behavior: 'smooth', block: 'start' });
     try { res.focus({ preventScroll: true }); } catch (e) { res.focus(); }
-    if (S.keepHist) pushHistory(r);
+    // 每次分析都落一条独立记录（不覆盖同岗位的旧记录）
+    pushHistory(r);
     syncDisclaimer();
   }
 
@@ -1415,9 +1431,9 @@
 
   function cell(s) { return String(s || '').replace(/\|/g, '\\|').replace(/\n/g, ' '); }
 
-  /* ================= 会话记录（完整） ================= */
-  var HIST_MAX = 10;
-  var histSel = null;
+  /* ================= 岗位分析记录（追加式，永不覆盖） ================= */
+  var HIST_MAX = ST.MAX_RECORDS;
+  var histSel = null;   // 当前打开的记录 id
 
   var JOB_KEYS = ['jobTitle', 'company', 'location', 'salary', 'description', 'companySize',
     'expRequirement', 'eduRequirement', 'skillsRequired', 'benefits', 'sourceUrl', 'industry', 'legalEntity'];
@@ -1425,7 +1441,7 @@
   var ST_TEXT = { pass: '通过', flag: '存疑', fail: '不通过', unknown: '未知' };
   var TAG_MAP = { matched: ['tag--ok', '有实践'], partial: ['tag--part', '仅关键词'], missing: ['tag--miss', '缺失'] };
 
-  // 存进 sessionStorage 的完整结果（不含简历原文，证据已脱敏）
+  // 存进记录库的完整结果（不含简历原文，证据已脱敏）
   function serializePerspective(pv) {
     if (!pv) return null;
     return {
@@ -1481,27 +1497,129 @@
     };
   }
 
-  function pushHistory(r) {
-    var job = r.job || collectJob();
-    var item = {
-      id: 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      at: r.generatedAt || new Date().toISOString(),
-      job: {},
-      prefs: { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() },
-      result: serializeResult(r)
-    };
-    JOB_KEYS.forEach(function (k) { item.job[k] = job[k] || ''; });
-    // 同岗位同公司视为更新，避免反复分析堆满列表
-    S.history = S.history.filter(function (h) {
-      return !(h.job && h.job.jobTitle === item.job.jobTitle && h.job.company === item.job.company);
+  /* ---------------- 存储读写 ---------------- */
+  // 同一个键读两处：开着「保存记录」写 localStorage，关掉只写 sessionStorage
+  function readRecordPayloads() {
+    var out = [];
+    try { var a = window.localStorage.getItem(REC_KEY); if (a) out.push(a); } catch (e) { /* 存储被禁用 */ }
+    try { var b = window.sessionStorage.getItem(REC_KEY); if (b && out.indexOf(b) === -1) out.push(b); } catch (e) { /* 忽略 */ }
+    return out;
+  }
+
+  function loadStoredRecords() {
+    var records = [];
+    var deleted = [];
+    readRecordPayloads().forEach(function (raw) {
+      var parsed = ST.parseStore(raw);
+      records = ST.merge(records, parsed.records);
+      parsed.deleted.forEach(function (id) { if (deleted.indexOf(id) === -1) deleted.push(id); });
     });
-    S.history.unshift(item);
-    S.history = S.history.slice(0, HIST_MAX);
-    try { sessionStorage.setItem(SS_HIST, JSON.stringify(S.history)); } catch (e) { /* 配额不足时仅保留内存副本 */ }
+    // 旧版会话记录（纯数组）一次性迁移，迁完即删，避免重复计入
+    try {
+      var legacy = window.sessionStorage.getItem(LEGACY_HIST);
+      if (legacy) {
+        records = ST.merge(records, ST.parseStore(legacy).records);
+        window.sessionStorage.removeItem(LEGACY_HIST);
+      }
+    } catch (e) { /* 忽略 */ }
+    S.histDeleted = deleted;
+    return records.filter(function (r) { return deleted.indexOf(r.id) === -1; });
+  }
+
+  function persistHistory() {
+    var payload = JSON.stringify(ST.toStore(S.history, S.histDeleted));
+    var primary = S.keepHist ? window.localStorage : window.sessionStorage;
+    var ok = false;
+    try { primary.setItem(REC_KEY, payload); ok = true; } catch (e) { ok = false; }
+    if (!ok) {
+      // 配额不足：只从最旧的开始丢，直到写得下；至少保留最新 20 条
+      var keep = S.history.slice();
+      var dropped = 0;
+      while (!ok && keep.length > 20) {
+        var cut = Math.min(keep.length - 20, Math.max(1, Math.ceil(keep.length * 0.2)));
+        keep = keep.slice(0, keep.length - cut);
+        dropped += cut;
+        try {
+          primary.setItem(REC_KEY, JSON.stringify(ST.toStore(keep, S.histDeleted)));
+          ok = true;
+        } catch (e) { ok = false; }
+      }
+      if (ok) {
+        S.history = keep;
+        S.histWarn = '本机存储空间不足，最早的 ' + dropped + ' 条记录未能写入；建议先导出记录再清理。';
+      } else {
+        S.histWarn = '本机存储不可用，本次记录只保留在页面内存中，刷新后会丢失。';
+      }
+    } else {
+      S.histWarn = '';
+    }
+    // 开启保存时把会话副本并回本机，避免两处各留一份；
+    // 关闭时不动本机副本——记录不会因为「关掉保存」而消失。
+    if (S.keepHist) {
+      try { window.sessionStorage.removeItem(REC_KEY); } catch (e) { /* 忽略 */ }
+    }
+  }
+
+  /* ---------------- 仓库基线（data/records.json） ----------------
+     静态站点没有后端，把仓库里的 records.json 当只读基线：
+     启动时按 id 合并进本机记录，谁也不少。file:// 下跳过，离线照常可用。 */
+  function loadRepoBaseline() {
+    if (S.repoTried) return;
+    S.repoTried = true;
+    var proto = window.location && window.location.protocol;
+    if (proto !== 'http:' && proto !== 'https:') return;
+    if (typeof window.fetch !== 'function') return;
+    window.fetch('data/records.json', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var parsed = ST.parseStore(data);
+        parsed.deleted.forEach(function (id) { if (S.histDeleted.indexOf(id) === -1) S.histDeleted.push(id); });
+        var base = parsed.records.filter(function (r) { return S.histDeleted.indexOf(r.id) === -1; });
+        if (!base.length) return;
+        var before = S.history.length;
+        S.history = ST.merge(S.history, base);
+        if (S.history.length !== before) {
+          persistHistory();
+          renderHistory();
+        }
+      })
+      .catch(function () { /* 没有基线文件就只显示本机记录 */ });
+  }
+
+  /* ---------------- 写入 ---------------- */
+  // 追加一条：同岗位的旧记录一条不删，切换视角也单独成条
+  function pushHistory(r, at) {
+    var rec = ST.makeRecord({
+      job: r.job || collectJob(),
+      prefs: { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() },
+      result: serializeResult(r),
+      at: at || new Date().toISOString(),
+      meta: { source: 'local' }
+    });
+    var res = ST.append(S.history, rec, { max: HIST_MAX });
+    if (!res.added) return;
+    S.history = res.records;
+    persistHistory();
     renderHistory();
   }
 
-  /* 免责声明：只要有分析结果或会话记录就展示
+  // 当前结果是否已经存过（同一份结果不重复追加）
+  function hasRecordFor(r) {
+    if (!r) return false;
+    var role = (r.perspective && r.perspective.role) || S.perspective;
+    return S.history.some(function (h) {
+      return h.role === role && h.result && h.result.generatedAt &&
+        r.generatedAt && h.result.generatedAt === r.generatedAt;
+    });
+  }
+
+  function findHist(id) {
+    if (!id) return null;
+    return ST.find(S.history, id);
+  }
+
+  /* 免责声明：只要有分析结果或记录就展示
      （刷新后结果区会隐藏、记录仍在，说明文字也应一并保留，不能只跟着结果走） */
   function syncDisclaimer() {
     var el = $('disclaimer');
@@ -1509,46 +1627,76 @@
     el.hidden = !(S.result || (S.history && S.history.length));
   }
 
+  /* ---------------- 渲染 ---------------- */
+  function fmtAt(iso, withYear) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '时间未知';
+    var opt = withYear
+      ? { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+      : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+    return d.toLocaleString('zh-CN', opt);
+  }
+
   function renderHistory() {
     var card = $('historyCard');
     var list = $('histList');
-    if (!S.history.length) {
-      var raw = null;
-      try { raw = sessionStorage.getItem(SS_HIST); } catch (e) { raw = null; }
-      if (raw) {
-        try { S.history = JSON.parse(raw) || []; } catch (e) { S.history = []; }
-      }
-    }
-    // 过滤旧格式遗留，避免渲染报错
-    S.history = (S.history || []).filter(function (h) { return h && h.job && h.result; });
-    if (!S.history.length) {
+    var statEl = $('histStat');
+    var warnEl = $('histWarn');
+    if (!card || !list) return;
+
+    S.history = ST.normalize(S.history);
+    var groups = ST.byJob(S.history);
+
+    $('optKeep').checked = S.keepHist;
+    if (warnEl) { warnEl.hidden = !S.histWarn; warnEl.textContent = S.histWarn || ''; }
+
+    if (!groups.length) {
       card.hidden = true;
       list.innerHTML = '';
-      $('optKeep').checked = S.keepHist;
+      if (statEl) statEl.textContent = '';
       syncDisclaimer();
       return;
     }
     card.hidden = false;
-    if (!S.keepHist) { S.keepHist = true; saveConfig(); }
-    $('optKeep').checked = S.keepHist;
 
-    list.innerHTML = S.history.map(function (h, i) {
-      var v = V[h.result.verdict] || V.moderate;
-      var loc = [h.job.location, h.job.salary].filter(Boolean).join(' · ');
-      var eng = (h.result.meta && h.result.meta.engine === 'api') ? 'AI 模型' : '本地引擎';
-      var role = (h.result.perspective && h.result.perspective.roleLabel) || '求职者视角';
-      var at = new Date(h.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-      return '<li><button type="button" class="histitem" data-idx="' + i + '">' +
-        '<span class="histitem__main">' +
-        '<span class="histitem__t">' + esc(h.job.jobTitle || '未命名岗位') + ' · ' + esc(h.job.company || '未知公司') + '</span>' +
-        '<span class="histitem__m">' +
-        (loc ? '<span>' + esc(loc) + '</span>' : '') +
-        '<span>' + esc(role) + '</span>' +
-        '<span>' + eng + '</span>' +
-        '<span>' + esc(at) + '</span>' +
-        '</span></span>' +
-        '<span class="histitem__sc"><b style="color:' + v.color + '">' + h.result.overallScore + '</b><em>' + v.label + '</em></span>' +
-        '</button></li>';
+    var st = ST.stats(S.history);
+    if (statEl) {
+      statEl.textContent = '共 ' + st.total + ' 条记录 · ' + st.jobs + ' 个岗位 · 求职者 ' + st.candidate +
+        ' 条 / 面试官 ' + st.interviewer + ' 条 · ' +
+        (S.keepHist ? '已保存在本机浏览器' : '仅本次标签页有效');
+    }
+
+    list.innerHTML = groups.map(function (g) {
+      var head = '<li class="histgroup">' +
+        '<div class="histgroup__head">' +
+        '<span class="histgroup__t">' + esc(g.jobTitle || '未命名岗位') +
+        '<em>' + esc(g.company || '未知公司') + '</em></span>' +
+        '<span class="histgroup__m">' + g.count + ' 次分析 · 求职者 ' + g.candidate +
+        ' / 面试官 ' + g.interviewer +
+        (g.best ? ' · 最高 ' + g.best.score + ' 分' : '') +
+        ' · 最近 ' + esc(fmtAt(g.latestAt)) + '</span>' +
+        '</div><ul class="histgroup__list">';
+      var rows = g.records.map(function (h) {
+        var v = V[h.result.verdict] || V.moderate;
+        var eng = (h.result.meta && h.result.meta.engine === 'api') ? 'AI 模型' : '本地引擎';
+        var loc = [h.job.location, h.job.salary].filter(Boolean).join(' · ');
+        return '<li><button type="button" class="histitem" data-id="' + esc(h.id) + '">' +
+          '<span class="histitem__role histitem__role--' + (h.role === 'interviewer' ? 'iv' : 'cd') + '">' +
+          (h.role === 'interviewer' ? '面试官' : '求职者') + '</span>' +
+          '<span class="histitem__main">' +
+          '<span class="histitem__t">第 ' + h.seq + ' 次分析 · ' + esc(h.roleLabel) + '</span>' +
+          '<span class="histitem__m">' +
+          '<span>' + esc(fmtAt(h.at)) + '</span>' +
+          '<span>' + esc(eng) + '</span>' +
+          (h.badge ? '<span>' + esc(h.badge) + '</span>' : '') +
+          (loc ? '<span>' + esc(loc) + '</span>' : '') +
+          '</span></span>' +
+          '<span class="histitem__sc"><b style="color:' + v.color + '">' +
+          (h.result.overallScore == null ? '—' : h.result.overallScore) +
+          '</b><em>' + v.label + '</em></span>' +
+          '</button></li>';
+      }).join('');
+      return head + rows + '</ul></li>';
     }).join('');
     syncDisclaimer();
   }
@@ -1699,11 +1847,16 @@
     }
 
     // 10) 元信息
-    out.push('<section class="dsec"><h4>分析元信息</h4><dl class="kv">' +
+    out.push('<section class="dsec"><h4>记录与元信息</h4><dl class="kv">' +
+      '<div><dt>记录编号</dt><dd class="mono">' + esc(h.id) + '</dd></div>' +
+      '<div><dt>分析视角</dt><dd>' + esc(h.roleLabel || (r.perspective && r.perspective.roleLabel) || '求职者视角') + '</dd></div>' +
+      '<div><dt>该岗位第</dt><dd>' + (function () {
+        var no = ST.ordinal(S.history, h);
+        return no ? '第 ' + no + ' 次分析' : '—';
+      })() + '</dd></div>' +
+      '<div><dt>生成时间</dt><dd>' + esc(fmtAt(h.at, true)) + '</dd></div>' +
       '<div><dt>引擎</dt><dd>' + (m.engine === 'api' ? 'AI 模型' + (m.model ? '（' + esc(m.model) + '）' : '') : '本地规则引擎') + '</dd></div>' +
-      '<div><dt>分析视角</dt><dd>' + esc((r.perspective && r.perspective.roleLabel) || '求职者视角') + '</dd></div>' +
       '<div><dt>发送前脱敏</dt><dd>' + (m.masked ? '已脱敏' : '未脱敏') + '</dd></div>' +
-      '<div><dt>生成时间</dt><dd>' + esc(new Date(h.at).toLocaleString('zh-CN')) + '</dd></div>' +
       '<div><dt>契约版本</dt><dd>' + esc(r.skillVersion || E.CONTRACT_VERSION) + '</dd></div>' +
       (h.prefs && (h.prefs.city || h.prefs.salary)
         ? '<div class="kv--full"><dt>求职偏好</dt><dd>' + esc([h.prefs.city, h.prefs.salary].filter(Boolean).join(' · ')) + '</dd></div>'
@@ -1713,12 +1866,15 @@
     return out.join('');
   }
 
-  function openHist(idx) {
-    var h = S.history[idx];
+  function openHist(id) {
+    var h = findHist(id);
     if (!h) return;
-    histSel = idx;
-    $('histDlgTitle').textContent = (h.job.jobTitle || '未命名岗位') + ' · ' + (h.job.company || '');
-    $('histDlgSub').textContent = '分析于 ' + new Date(h.at).toLocaleString('zh-CN') +
+    histSel = h.id;
+    var no = ST.ordinal(S.history, h);
+    $('histDlgTitle').textContent = (h.jobTitle || '未命名岗位') + ' · ' + (h.company || '');
+    $('histDlgSub').textContent = (h.roleLabel || '求职者视角') +
+      (no ? ' · 该岗位第 ' + no + ' 次分析' : '') +
+      ' · 生成于 ' + fmtAt(h.at, true) +
       '　·　点击「载入到表单」可把岗位信息填回输入区重新分析';
     $('histDlgBody').innerHTML = histDetailHtml(h);
     var dlg = $('histDlg');
@@ -1734,8 +1890,8 @@
     histSel = null;
   }
 
-  function loadHist(idx) {
-    var h = S.history[idx];
+  function loadHist(id) {
+    var h = findHist(id);
     if (!h) return;
     JOB_KEYS.forEach(function (k) {
       var el = $(k);
@@ -1746,11 +1902,9 @@
       $('prefSalary').value = h.prefs.salary || '';
     }
     // 记录里用的视角一并带回，避免「载入后视角对不上」
-    if (h.result && h.result.perspective && h.result.perspective.role) {
-      S.perspective = h.result.perspective.role === 'interviewer' ? 'interviewer' : 'candidate';
-      saveConfig();
-      syncPerspectiveUI();
-    }
+    S.perspective = h.role === 'interviewer' ? 'interviewer' : 'candidate';
+    saveConfig();
+    syncPerspectiveUI();
     updateCounts();
     closeHist();
     var target = $('jobTitle');
@@ -1760,15 +1914,47 @@
     }
   }
 
-  function delHist(idx) {
-    if (!S.history[idx]) return;
-    S.history.splice(idx, 1);
-    try {
-      if (S.history.length) sessionStorage.setItem(SS_HIST, JSON.stringify(S.history));
-      else sessionStorage.removeItem(SS_HIST);
-    } catch (e) { /* 忽略 */ }
+  // 删一条：只删这一条，同岗位其他记录不受影响；记进 deleted 防止仓库基线把它带回来
+  function delHist(id) {
+    var h = findHist(id);
+    if (!h) return;
+    S.history = ST.remove(S.history, h.id);
+    if (S.histDeleted.indexOf(h.id) === -1) S.histDeleted.push(h.id);
+    persistHistory();
     closeHist();
     renderHistory();
+  }
+
+  // 清空全部记录：整批删除，同时把这些 id 记为已删除
+  function clearHistory() {
+    S.history.forEach(function (h) {
+      if (S.histDeleted.indexOf(h.id) === -1) S.histDeleted.push(h.id);
+    });
+    S.history = [];
+    S.histWarn = '';
+    persistHistory();
+    closeHist();
+    renderHistory();
+  }
+
+  // 导出全部记录：格式与仓库 data/records.json 完全一致，可直接替换后提交
+  function exportRecords() {
+    if (!S.history.length) { flash($('btnHistExport'), '暂无记录'); return; }
+    var payload = ST.toStore(S.history, S.histDeleted, {
+      note: 'OfferFit 岗位分析记录。每条记录独立保存岗位快照、视角、生成时间与完整分析结果；可放回仓库 data/records.json 作为基线。'
+    });
+    payload.exportedAt = new Date().toISOString();
+    var name = 'offerfit-records-' + new Date().toISOString().slice(0, 10) + '.json';
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    flash($('btnHistExport'), '已导出 ' + S.history.length + ' 条');
   }
 
   /* ================= 清除 ================= */
@@ -1789,7 +1975,7 @@
   }
 
   function clearAll() {
-    if (!window.confirm('将清空简历、岗位信息、分析结果、会话记录与本地配置，操作不可撤销。\nAPI Key 会立即从内存中移除。是否继续？')) return;
+    if (!window.confirm('将清空简历、岗位信息、分析结果、全部分析记录与本地配置，操作不可撤销。\n如需留档，请先在记录区「导出记录」。API Key 会立即从内存中移除。是否继续？')) return;
 
     S.resumeRaw = '';
     S.fileName = '';
@@ -1818,7 +2004,9 @@
     MSG_MAP = {};
 
     try { localStorage.removeItem(LS_CFG); } catch (e) {}
-    try { sessionStorage.removeItem(SS_HIST); } catch (e) {}
+    try { localStorage.removeItem(REC_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(REC_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(LEGACY_HIST); } catch (e) {}
 
     S.dims = E.DEFAULT_DIMS.map(function (d) { return { key: d.key, label: d.label, weight: d.weight, on: true, hint: d.hint }; });
     S.thresholds = { strong: 75, good: 60, moderate: 45 };
@@ -1826,7 +2014,9 @@
     S.outfmt = 'detailed';
     S.perspective = 'candidate';
     S.maskSend = true;
-    S.keepHist = false;
+    S.keepHist = true;
+    S.histDeleted = [];
+    S.histWarn = '';
     S.engine = 'local';
     S.prefs = { city: '', salary: '' };
     $$('input[name=engine]').forEach(function (r) { r.checked = r.value === 'local'; });

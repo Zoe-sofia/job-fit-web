@@ -189,7 +189,35 @@ AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risk
 
 `recommendation` 也随视角换措辞（面试官读「建议进入面试 / 谨慎推进」，求职者读「建议优先投递 / 暂不建议投递」），但档位由同一个 `verdict` 与硬性条件推出，不额外打分。
 
-## 九、改动这份契约
+## 九、分析记录 `offerfit.records/1`
+
+记录是 `result` 的**容器**，不属于评分口径，但属于输出契约的一部分：写进记录的字段必须和当次结果一致，不能事后重算。实现在 `assets/js/store.js`（纯函数，无 DOM / 无存储）。
+
+单条记录结构：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 记录唯一标识，格式 `r<时间36进制>-<随机>`；去重只看它 |
+| `schema` | 固定 `offerfit.records/1` |
+| `at` / `atMs` | 生成时间（ISO 与毫秒），列表排序依据 |
+| `role` / `roleLabel` / `badge` | 分析视角及当次档位文案，来自 `result.perspective` |
+| `jobKey` | 岗位归组键：`公司 + \u0001 + 岗位名`，忽略空白、大小写与全半角括号 |
+| `jobTitle` / `company` | 便于列表直接渲染，与 `job` 冗余但只读 |
+| `job` | 岗位快照，含 13 个字段与 **JD 原文** |
+| `prefs` | 当次求职偏好（城市、薪资） |
+| `result` | 完整分析结果，字段与第七节一致（含 `perspective`） |
+| `meta` | `source`（`local` / `repo`）、`engine`、`model`、`contract` |
+
+硬约束：
+
+1. **追加式**：每次分析、每次切换视角都新增一条；只有 `id` 相同才视为同一条。**禁止按岗位覆盖、合并或只保留最新一条**。
+2. **自包含**：每条记录必须能独立阅读，不得依赖「上一条」或「最新一次」补齐岗位、视角或结果。
+3. **完整性**：`job.description`（JD 原文）、`result.dimensions`、`result.hardConstraints`、`result.perspective.sections` 必须与当次输出一致；不含简历原文，证据已脱敏。
+4. **序号是算出来的**：列表里的「第 N 次分析」按同 `jobKey` 记录的 `atMs` 正序计算，不写入记录本身，避免删除后序号错乱。
+5. **导出可回读**：`toStore()` 产出 `{schema, updatedAt, count, records, deleted}`，`parseStore()` 必须能原样读回；`deleted` 是删除墓碑，用于阻止仓库基线把已删记录带回来。
+6. 存储：一个键 `offerfit.records.v1`，开启保存写 `localStorage`，关闭只写 `sessionStorage`；两处按 `id` 合并，不互相覆盖。上限 200 条，超出只丢最旧。
+
+## 十、改动这份契约
 
 任何影响分数的改动，PR 必须包含：
 
@@ -197,5 +225,6 @@ AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risk
 2. 至少一组「同一输入的前后分数对比」
 3. UI 文案同步（配置区说明、页脚、报告导出）
 4. 若改动 `perspective` 结构，需同步 `skills/job-fit` 与页面渲染
+5. 若改动记录结构，需同步 `assets/js/store.js`、`tests/records.test.mjs` 与 `data/records.json` 的 `schema`
 
 版本号递增规则：口径不兼容（分数含义变化）→ 升 minor；仅新增输出字段或措辞修复 → 升 patch；新增字段但不改分数语义时，需在文首写明「兼容性扩展」。当前版本 `1.3.0`。
