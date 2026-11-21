@@ -6,10 +6,18 @@
 
 | 入口 | 地址 | 说明 |
 |---|---|---|
-| GitHub Pages（主站） | <https://zoe-sofia.github.io/job-fit-web/> | 已启用（Source: **GitHub Actions**），push `main` 自动发布 |
-| EdgeOne Makers（国内备用） | `https://<项目名>.edgeone.app`（部署后回填） | 腾讯云边缘托管，默认域名中性、免备案；须把加速区域选为**含中国大陆** |
+| GitHub Pages | <https://zoe-sofia.github.io/job-fit-web/> | 唯一入口。Source 为 **GitHub Actions**，push `main` 自动发布 |
 
-> 两个入口跑的是同一份代码。国内访问 GitHub Pages 不稳定时用备用入口。此前的 WorkBuddy 托管镜像已不再作为对外入口。
+**目前没有国内备用入口。** 原因是多条备用线路都已评估并放弃：
+
+| 曾考虑的方案 | 放弃原因 |
+|---|---|
+| WorkBuddy 托管 | 域名带第三方产品名（`*.workbuddy.host`），观感像内部工具；已于 2026-11 下线 |
+| EdgeOne Makers 直传 | CLI 只给带 `eo_token` 的临时预览域（3 小时过期），无法作为长期公开链接 |
+| EdgeOne Makers 连 Git | 可拿到 `<项目名>.edgeone.app`，但需控制台手动建项目；等确定长期维护时再启用，步骤见第三节 |
+| 自有域名 + 备案 | 决定走这条时一次做对，避免二次迁移 |
+
+因此 `*.github.io` 在国内不稳时，当前没有兜底入口——这是已知且已接受的取舍。
 
 ## 一、GitHub Pages（当前主站）
 
@@ -53,12 +61,12 @@ GlobalWorkerOptions.workerSrc = base + 'assets/vendor/pdf.worker.min.js';
 
 `*.github.io` 在国内的连通性不稳定，而本项目的用户正是中文求职者。**建议至少准备一个备用入口。**
 
-首选 **EdgeOne Makers（腾讯云）**：默认域名形如 `<项目名>.edgeone.app`，不带任何第三方产品名、默认域名无需备案，选对加速区域后国内速度明显好于 GitHub Pages，个人项目免费额度够用。
+**将来若需要备用入口，首选 EdgeOne Makers（腾讯云）**：默认域名形如 `<项目名>.edgeone.app`，不带任何第三方产品名、默认域名无需备案，选对加速区域后国内速度明显好于 GitHub Pages，个人项目免费额度够用。**当前未启用**，步骤保留在下方，决定启用时照做即可。
 
 | 方案 | 默认域名 | 国内速度 | 备案 | 备注 |
 |---|---|---|---|---|
 | GitHub Pages | `<用户名>.github.io` | 不稳定 | 不需要 | 主站，与仓库同源、零配置 |
-| **EdgeOne Makers** | `<项目名>.edgeone.app` | 快（须选含大陆区域） | 默认域名不需要 | **首选备用入口** |
+| **EdgeOne Makers** | `<项目名>.edgeone.app` | 快（须选含大陆区域） | 默认域名不需要 | 启用时的首选 |
 | Cloudflare Pages | `<项目名>.pages.dev` | 一般 | 不需要 | 连 Git 自动部署，配合自有域名最省事 |
 | Vercel / Netlify | `<项目名>.vercel.app` | 一般偏慢 | 不需要 | 同上，构建配置留空即可 |
 | 对象存储 + CDN（COS/OSS） | 自有域名 | 快 | **必须** | 追求稳定与可控 |
@@ -72,7 +80,7 @@ GlobalWorkerOptions.workerSrc = base + 'assets/vendor/pdf.worker.min.js';
 - 用平台分配的默认域名（`*.edgeone.app`、`*.pages.dev` 等）——通常无需备案，但可能被限速。
 - 主站留 GitHub Pages，国内用户走默认域名做的备用入口。
 
-### EdgeOne Makers 部署步骤（当前备用入口）
+### EdgeOne Makers 部署步骤（启用备用入口时照做）
 
 **方式 A：控制台连 Git，push 自动部署（推荐）**
 
