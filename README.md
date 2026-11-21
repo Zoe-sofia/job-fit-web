@@ -35,32 +35,13 @@ OfferFit 把这件事变成可复核的结构化输出：
 
 ## 快速开始
 
-### 方式一：直接打开
+打开 <https://zoe-sofia.github.io/job-fit-web/>，即可使用。**无需下载、无需安装、无需注册**，手机与电脑都能开。
 
-双击 `index.html` 即可用。**但 PDF 解析会失效**——pdf.js 的解析线程在 `file://` 下会被浏览器拦截。DOCX / TXT / 粘贴文本不受影响。
+国内访问不稳定时，改用镜像：<https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2>（链接须带 `sharecode` 参数，首次打开会写入会话 Cookie）。
 
-### 方式二：本地起个静态服务（推荐，PDF 可用）
+第一次用建议先看一眼 [docs/USAGE.md](docs/USAGE.md)：怎么贴 JD、哪些字段必填、结果怎么读。
 
-任选一条，然后打开 <http://127.0.0.1:5180/>：
-
-```bash
-# Python 3
-python3 -m http.server 5180 --bind 127.0.0.1
-
-# Node（本仓库自带零依赖版本）
-node serve.js 5180
-
-# 或任意静态服务器
-npx serve -l 5180
-```
-
-Windows 用户也可以双击 `启动应用.vbs`（隐藏窗口启动 + 自动打开浏览器），`停止服务.vbs` 关闭。
-
-> ⚠️ 两个 `.vbs` 与 `启动应用.bat` 是 GBK 编码的 Windows 专用脚本，在 GitHub 网页上会显示为乱码，这是编码所致，不影响本地运行。
-
-### 方式三：在线
-
-打开 <https://zoe-sofia.github.io/job-fit-web/>，无安装、无注册。
+> 想在本地跑或自己部署一份：本地启动见下方[开发与测试](#开发与测试)，托管配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ## 评分口径
 
