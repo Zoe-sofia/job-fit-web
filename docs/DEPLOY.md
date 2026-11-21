@@ -2,15 +2,26 @@
 
 本项目是纯静态站点：**没有构建步骤、没有环境变量、没有服务端**。部署 = 把仓库根目录原样托管。
 
+## 当前入口
+
+| 入口 | 地址 | 说明 |
+|---|---|---|
+| GitHub Pages（主站） | `https://zoe-sofia.github.io/job-fit-web/` | 由 `.github/workflows/pages.yml` 自动部署，需仓库 Pages 的 Source 选为 **GitHub Actions** |
+| WorkBuddy 托管（国内备用） | `https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2` | 首次访问会写入会话 Cookie，之后资源正常加载；分享链接需带上 `sharecode` 参数 |
+
+> 两个入口跑的是同一份代码。国内访问不稳定时用备用入口。
+
 ## 一、GitHub Pages（当前主站）
 
-仓库 → **Settings → Pages**：
+仓库已带部署工作流 `.github/workflows/pages.yml`，只需做一次开关：
 
-- Source：`Deploy from a branch`
-- Branch：`main`，目录 `/ (root)`
-- Save，等 1–2 分钟
+仓库 → **Settings → Pages** → **Build and deployment → Source** 选 **`GitHub Actions`**。
+
+之后每次 push 到 `main` 都会自动构建并发布，无需再点。首次启用后若没有自动触发，在 **Actions → Deploy to GitHub Pages** 里点一次 `Re-run all jobs`。
 
 访问地址：`https://<用户名>.github.io/<仓库名>/`
+
+> ⚠️ 不要选 `Deploy from a branch`：本仓库的发布目录经过工作流处理（排除 `.git`），选了分支模式会和 `deploy-pages` 冲突。
 
 首次部署常见坑：
 
