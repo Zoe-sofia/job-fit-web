@@ -5,7 +5,6 @@
 **全部计算在浏览器里完成**——简历不上传、不落盘、不埋点。没有后端，没有构建步骤，没有外部 CDN。
 
 > 在线使用：<https://zoe-sofia.github.io/job-fit-web/>
-> 国内访问不稳定时的镜像：<https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2>（须带 `sharecode` 参数）
 
 ---
 
@@ -35,11 +34,15 @@ OfferFit 把这件事变成可复核的结构化输出：
 
 ## 快速开始
 
-### 方式一：直接打开
+### 方式一：在线
+
+打开 <https://zoe-sofia.github.io/job-fit-web/>，无安装、无注册。
+
+### 方式二：直接打开
 
 双击 `index.html` 即可用。**但 PDF 解析会失效**——pdf.js 的解析线程在 `file://` 下会被浏览器拦截。DOCX / TXT / 粘贴文本不受影响。
 
-### 方式二：本地起个静态服务（推荐，PDF 可用）
+### 方式三：本地起个静态服务（推荐，PDF 可用）
 
 任选一条，然后打开 <http://127.0.0.1:5180/>：
 
@@ -58,9 +61,6 @@ Windows 用户也可以双击 `启动应用.vbs`（隐藏窗口启动 + 自动�
 
 > ⚠️ 两个 `.vbs` 与 `启动应用.bat` 是 GBK 编码的 Windows 专用脚本，在 GitHub 网页上会显示为乱码，这是编码所致，不影响本地运行。
 
-### 方式三：在线
-
-打开 <https://zoe-sofia.github.io/job-fit-web/>，无安装、无注册。
 
 ## 评分口径
 
