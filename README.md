@@ -5,7 +5,7 @@
 **全部计算在浏览器里完成**——简历不上传、不落盘、不埋点。没有后端，没有构建步骤，没有外部 CDN。
 
 > 在线使用：<https://zoe-sofia.github.io/job-fit-web/>
-> 打不开时见 [docs/DEPLOY.md](docs/DEPLOY.md) 的国内备用方案。
+> 国内访问不稳定时的镜像：<https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2>（须带 `sharecode` 参数）
 
 ---
 

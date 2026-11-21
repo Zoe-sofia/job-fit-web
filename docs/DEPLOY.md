@@ -6,18 +6,16 @@
 
 | 入口 | 地址 | 说明 |
 |---|---|---|
-| GitHub Pages（主站） | `https://zoe-sofia.github.io/job-fit-web/` | 由 `.github/workflows/pages.yml` 自动部署，需仓库 Pages 的 Source 选为 **GitHub Actions** |
-| WorkBuddy 托管（国内备用） | `https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2` | 首次访问会写入会话 Cookie，之后资源正常加载；分享链接需带上 `sharecode` 参数 |
+| GitHub Pages（主站） | <https://zoe-sofia.github.io/job-fit-web/> | 已启用（Source: **GitHub Actions**），push `main` 自动发布 |
+| WorkBuddy 托管（国内备用） | <https://offerfit-job-fit.app.workbuddy.host/?sharecode=4YP3EMEDL2> | 首次访问会写入会话 Cookie，之后资源正常加载；分享链接需带上 `sharecode` 参数 |
 
 > 两个入口跑的是同一份代码。国内访问不稳定时用备用入口。
 
 ## 一、GitHub Pages（当前主站）
 
-仓库已带部署工作流 `.github/workflows/pages.yml`，只需做一次开关：
+仓库已带部署工作流 `.github/workflows/pages.yml`，本仓库已把 **Settings → Pages → Build and deployment → Source** 设为 **`GitHub Actions`**。
 
-仓库 → **Settings → Pages** → **Build and deployment → Source** 选 **`GitHub Actions`**。
-
-之后每次 push 到 `main` 都会自动构建并发布，无需再点。首次启用后若没有自动触发，在 **Actions → Deploy to GitHub Pages** 里点一次 `Re-run all jobs`。
+之后每次 push 到 `main` 都会自动构建并发布，无需再点。**fork 或新建仓库时要自己再设一次这个开关**（新仓库默认未启用 Pages），设好后在 Actions 里手动跑一次 `Deploy to GitHub Pages` 即可。
 
 访问地址：`https://<用户名>.github.io/<仓库名>/`
 
