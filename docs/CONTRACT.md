@@ -1,8 +1,10 @@
-# 分析契约 `job-fit@1.2.0`
+# 分析契约 `job-fit@1.3.0`
 
 本文是 OfferFit 的**唯一口径来源**。`engine.js`（本地引擎）与 `app.js`（AI 模式结果归一化）都必须遵守它；改口径必须同时改本文与 UI 文案。
 
 > 为什么要有这份文档：同一份简历，不同工具给出 68、72、85 三个分，用户无法判断该信谁。把规则写死并公开，分数才可复核、可争论、可改进。
+
+> 1.3.0 相对 1.2.0 是**兼容性扩展**：评分、硬性条件、封顶语义完全不变，仅新增 `perspective`（分析视角）字段与视角化建议段落；旧字段一个未删。只按 1.2.0 读取结果的调用方可以忽略新字段。
 
 ---
 
@@ -22,6 +24,7 @@
 | `options.thresholds` | — | 结论阈值，默认 75 / 60 / 45，必须严格递减 |
 | `options.hard{}` | — | 五项硬性条件的开关，默认全开 |
 | `options.masked` | — | 简历是否已脱敏（仅影响 `meta`，不影响分数） |
+| `perspective` | — | 分析视角：`candidate`（默认，求职者）/ `interviewer`（面试官）。**只影响建议的组织方式，绝不参与打分** |
 
 ## 二、四个维度与默认权重
 
@@ -85,7 +88,7 @@ unconstrainedScore = round(加权分)
 
 ```json
 {
-  "contract": "job-fit@1.2.0",
+  "contract": "job-fit@1.3.0",
   "capMode": "min",
   "hardCapApplied": true,
   "hardCap": 44,
@@ -138,21 +141,61 @@ confidence = round(Σ 已知权重)    // 0–100
   "fitPoints": [{ "req": "JD 要求", "ev": "简历证据" }],
   "skills": [{ "name": "Vue", "status": "matched|partial|missing", "evidence": "…" }],
   "advice": ["…"],
-  "meta": { "skillCoverage": 62, "years": 3, "edu": "本科", "engine": "local", "masked": true, "thresholds": {} },
+  "perspective": {
+    "role": "candidate",
+    "roleLabel": "求职者视角",
+    "badge": { "tone": "good", "label": "补强后投递" },
+    "headline": "一句话定位（含核心矛盾）",
+    "summary": "2–3 句依据说明",
+    "sections": [
+      { "key": "advantages", "title": "匹配优势", "hint": "…", "items": [{ "text": "…", "tag": "强证据", "note": "…" }] }
+    ]
+  },
+  "meta": { "skillCoverage": 62, "years": 3, "edu": "本科", "engine": "local", "masked": true, "perspective": "candidate", "thresholds": {} },
   "evidence": ["…"],
   "generatedAt": "2026-11-21T09:00:00.000Z",
-  "skillVersion": "job-fit@1.2.0"
+  "skillVersion": "job-fit@1.3.0"
 }
 ```
 
-AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risks` / `advice` 等**措辞**，维度分与封顶由本地重算。模型返回的 JSON 会经过括号配平切片、弯引号修正、尾随逗号清理、截断补全等修复流程，失败则追加严格提示重试一次。
+AI 模式额外要求：模型只负责 `summary` / `strengths` / `gaps` / `risks` / `advice` / `perspective` 里的**措辞**，维度分、封顶与 `perspective.badge` 由本地重算或本地规则给定（见第八节）。模型返回的 JSON 会经过括号配平切片、弯引号修正、尾随逗号清理、截断补全等修复流程，失败则追加严格提示重试一次。
 
-## 八、改动这份契约
+## 八、分析视角 `perspective`
+
+同一份简历、同一套分数，按使用者身份组织结论。**视角是输出层的重排，不是第二套评分**：
+
+| 视角 | `role` | 决策问题 | 固定小节（`sections[].key`，顺序不可变） |
+|---|---|---|---|
+| 求职者 | `candidate` | 投不投、怎么改简历、面试怎么准备 | `advantages` 匹配优势 → `gaps` 能力差距 → `resume` 简历优化方向 → `apply` 投递建议 → `prep` 面试准备建议 |
+| 面试官 | `interviewer` | 要不要面、证据够不够、风险在哪、问什么 | `evidence` 岗位匹配证据 → `risks` 风险点 → `questions` 面试提问建议 |
+
+结构与字段：
+
+| 字段 | 说明 |
+|---|---|
+| `role` / `roleLabel` | 视角标识与中文名；缺省按 `candidate` 处理 |
+| `badge.tone` / `badge.label` | 一句话档位。求职者：优先投递 / 补强后投递 / 谨慎投递 / 暂缓投递 / 先解决门槛；面试官：推荐进入面试 / 可以进入面试 / 需重点验证 / 不建议推进 / 门槛不符，慎推进 |
+| `headline` | 一句话点明核心矛盾或结论 |
+| `summary` | 2–3 句依据，必须与分数、硬性条件一致 |
+| `sections[].items[]` | `text` 结论或问题，`tag` 短标签，`note` 观察点 / 可执行动作 |
+
+硬约束：
+
+1. **分数不变**：`overallScore`、`unconstrainedScore`、`dimensions`、`hardConstraints`、`verdict`、`confidence` 与视角完全无关。同一输入切换视角，上述字段必须逐一相等。
+2. **证据不新增**：视角不能引入简历或 JD 之外的事实。
+3. **不越权**：求职者视角不承诺录用概率、不评判性格；面试官视角不做录用决定、不给薪资谈判建议。
+4. **小节 key 固定**，标题用中文；`items` 建议 ≤ 6 条，`tag` ≤ 6 字。
+5. `perspective` 缺失时视为 1.2.0 旧结果：校验不报错，前端隐藏视角面板，其余字段照常使用。
+
+`recommendation` 也随视角换措辞（面试官读「建议进入面试 / 谨慎推进」，求职者读「建议优先投递 / 暂不建议投递」），但档位由同一个 `verdict` 与硬性条件推出，不额外打分。
+
+## 九、改动这份契约
 
 任何影响分数的改动，PR 必须包含：
 
 1. 本文件的同步修改
 2. 至少一组「同一输入的前后分数对比」
 3. UI 文案同步（配置区说明、页脚、报告导出）
+4. 若改动 `perspective` 结构，需同步 `skills/job-fit` 与页面渲染
 
-版本号递增规则：口径不兼容（分数含义变化）→ 升 minor；仅措辞或修复 → 升 patch。当前版本 `1.2.0`。
+版本号递增规则：口径不兼容（分数含义变化）→ 升 minor；仅新增输出字段或措辞修复 → 升 patch；新增字段但不改分数语义时，需在文首写明「兼容性扩展」。当前版本 `1.3.0`。

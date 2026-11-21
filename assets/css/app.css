@@ -452,6 +452,32 @@ button{font:inherit;color:inherit}
 .bullets .qt{display:inline-block;margin-top:2px}
 #results:focus{outline:none}
 
+/* ============ 双视角 ============ */
+.segmented--role .seg em{line-height:1.5;margin-top:3px}
+.panel--role{border-color:var(--brand-line);background:linear-gradient(180deg,var(--brand-soft),var(--surface) 140px)}
+.pvhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+.pvtopic{font-size:11.5px;font-weight:650;letter-spacing:.02em;padding:3px 9px;border-radius:999px;background:var(--surface);border:1px solid var(--brand-line);color:var(--brand-ink)}
+.pvtone{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand)}
+.pvheadline{font-size:14.5px;font-weight:650;line-height:1.6;letter-spacing:-.01em}
+.pvsum{font-size:12.5px;color:var(--ink-2);line-height:1.75;margin-top:5px}
+.pvgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.pvsec{background:var(--surface-2);border:1px solid var(--line-2);border-radius:12px;padding:13px 14px;min-width:0}
+/* 单数小节（如求职者的「面试准备建议」、面试官的「面试提问建议」）横跨整行，避免留下大片空白 */
+.pvsec:last-child:nth-child(odd){grid-column:1 / -1}
+.pvsec h4{font-size:12.5px;margin-bottom:2px}
+.pvsec__h{font-size:11px;color:var(--ink-3);margin-bottom:9px;line-height:1.5}
+.pvlist{display:grid;gap:9px}
+/* 横跨整行的小节（通常是条目最多的一段）分两列排，避免一条长列表拉满全宽 */
+.pvsec:last-child:nth-child(odd) .pvlist{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}
+.pvitem{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;line-height:1.65;min-width:0}
+.pvtag{flex:0 0 auto;font-size:10.5px;font-weight:650;padding:1px 6px;border-radius:5px;background:var(--surface-4);color:var(--ink-2);margin-top:2px;white-space:nowrap}
+.pvitem__b{min-width:0}
+.pvitem__t{color:var(--ink);font-weight:550}
+.pvitem__n{font-size:11.5px;color:var(--ink-3);margin-top:2px;line-height:1.6;word-break:break-word}
+/* 记录详情里的视角小节标题 */
+.dsec h5.dsub{font-size:11.5px;color:var(--ink-3);font-weight:650;margin:13px 0 6px}
+.dsec h5.dsub:first-of-type{margin-top:2px}
+
 /* ============ history ============ */
 .history{margin-top:16px}
 .histlist{display:grid;gap:8px}
@@ -558,6 +584,8 @@ button{font:inherit;color:inherit}
   .thgrid{grid-template-columns:1fr 1fr 1fr;gap:7px}
   .radios{grid-template-columns:1fr}
   .segmented{grid-template-columns:1fr}
+  .pvgrid{grid-template-columns:1fr}
+  .pvsec:last-child:nth-child(odd) .pvlist{grid-template-columns:1fr}
   .dimrow{grid-template-columns:auto 1fr 66px}
   .res-head__acts{width:100%}
   .res-head__acts .btn{flex:1}

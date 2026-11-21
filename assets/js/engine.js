@@ -1,11 +1,13 @@
 /* ============================================================
    engine.js — 本地规则分析引擎
-   输出结构对齐 job-fit@1.2.0 契约：
+   输出结构对齐 job-fit@1.3.0 契约：
    技术 30 / 经验 25 / 协作 15 / 方向 30，硬性条件不参与加权。
    双评分口径：
    - overallScore：全部启用维度加权（按已知权重归一化）；任一硬性条件 fail 时以 44 分为上限（只降不升）。
    - unconstrainedScore：同一套全维度加权分，但不施加硬性门槛封顶，因此不受硬性条件失败影响；
      无可用维度时为 null。
+   双视角：同一份证据、同一套分数，按使用者的身份（求职者 / 面试官）产出不同的建议段落。
+   视角只影响措辞与建议组织，绝不参与打分。
    所有计算在浏览器内存中完成。
    ============================================================ */
 window.OfferFitEngine = (function () {
@@ -498,6 +500,39 @@ window.OfferFitEngine = (function () {
   // 硬性条件未通过时的匹配度上限（只降不升：取 min(加权分, 44)）
   var HARD_FAIL_SCORE = 44;
 
+  var CONTRACT_VERSION = 'job-fit@1.3.0';
+
+  // 视角元信息：UI 的选项文案与报告抬头都以这里为准
+  var PERSPECTIVES = [
+    {
+      key: 'candidate',
+      label: '求职者视角',
+      optionLabel: '我是求职者',
+      optionHint: '看优势、差距、改简历与投递',
+      desc: '面向投递决策：重点给出匹配优势、能力差距、简历优化方向、投递与面试准备建议。'
+    },
+    {
+      key: 'interviewer',
+      label: '面试官视角',
+      optionLabel: '我是面试官',
+      optionHint: '看胜任度、证据、风险与提问',
+      desc: '面向筛选决策：重点给出候选人胜任度、岗位匹配证据、风险点与面试提问建议。'
+    }
+  ];
+
+  function normPerspective(p) {
+    var k = String(p || '');
+    return k === 'interviewer' ? 'interviewer' : 'candidate';
+  }
+
+  function perspectiveMeta(p) {
+    var k = normPerspective(p);
+    for (var i = 0; i < PERSPECTIVES.length; i++) {
+      if (PERSPECTIVES[i].key === k) return PERSPECTIVES[i];
+    }
+    return PERSPECTIVES[0];
+  }
+
   function clampScore(v) {
     v = Number(v);
     if (!isFinite(v)) return 0;
@@ -526,6 +561,361 @@ window.OfferFitEngine = (function () {
     };
   }
 
+  /* ---------------- 双视角建议 ----------------
+     视角只改变「怎么讲」，不改变「多少分」：
+     分数、维度、硬性条件、技能矩阵全部在视角之前算完，这里只读取结果做组织。 */
+
+  function pvItem(text, tag, note) {
+    return { text: String(text || ''), tag: String(tag || ''), note: String(note || '') };
+  }
+
+  function pvSection(key, title, hint, items) {
+    return {
+      key: key,
+      title: title,
+      hint: hint || '',
+      items: (items || []).filter(function (x) { return x && x.text; })
+    };
+  }
+
+  function moneyRange(p) { return p ? (p.min + '–' + p.max + 'K') : ''; }
+
+  function skillNames(list, n) {
+    return (list || []).slice(0, n || 3).map(function (s) { return s.name; });
+  }
+
+  function hasHardLabel(list, label) {
+    return (list || []).some(function (h) { return h.label === label; });
+  }
+
+  function joinedOr(list, fallback) {
+    return list && list.length ? list.join('、') : (fallback || '');
+  }
+
+  /* ---------- 求职者视角：投不投、怎么改、面试怎么答 ---------- */
+  function candidateView(c) {
+    var meta = perspectiveMeta('candidate');
+    var matchedSkills = c.skills.filter(function (s) { return s.status === 'matched'; });
+    var partialSkills = c.partialList || [];
+    var missing = c.missing || [];
+    var topMissing = skillNames(missing, 3);
+    var failLabels = c.failed.map(function (f) { return f.label; });
+
+    /* 1. 匹配优势 */
+    var adv = [];
+    matchedSkills.slice(0, 3).forEach(function (s) {
+      adv.push(pvItem('「' + s.name + '」有可引用的实践证据', '强证据', clip(s.evidence || '简历原文中有对应描述', 90)));
+    });
+    if (c.expScore != null && c.expScore >= 78 && c.jdYears && c.years != null) {
+      adv.push(pvItem('经验年限落在岗位区间内', '年限达标',
+        '简历约 ' + c.years + ' 年，岗位要求 ' + (c.jdYears.raw || (c.jdYears.min + ' 年以上')) + '。'));
+    }
+    if (c.bestSim >= 0.5 && c.bestTitle) {
+      adv.push(pvItem('既往头衔与目标岗位同属一个职能序列', '方向一致',
+        '简历「' + c.bestTitle + '」→ 岗位「' + (c.job.jobTitle || '目标岗位') + '」，转岗成本低。'));
+    }
+    if (c.industryMatch === 1) {
+      adv.push(pvItem('具备岗位所在行业的背景', '行业对口', '简历中出现「' + c.job.industry + '」相关关键词。'));
+    }
+    if (!adv.length) {
+      adv.push(pvItem('暂未找到可直接引用的强证据', '待补',
+        '先把项目里的「场景 / 你的动作 / 结果数字」写清楚，再回来看匹配度。'));
+    }
+
+    /* 2. 能力差距：门槛 → 缺失 → 半匹配 → 待确认 */
+    var gaps = [];
+    c.failed.forEach(function (f) {
+      gaps.push(pvItem('硬门槛未通过：' + f.label, '门槛', f.note));
+    });
+    missing.slice(0, 3).forEach(function (s, i) {
+      gaps.push(pvItem('缺少「' + s.name + '」的证据', '缺口', i === 0
+        ? 'JD 有要求但简历未出现；有相关经历就补一条带结果的证据，确实没有就用可迁移能力说明，不要虚构。'
+        : '同为 JD 明确要求，按岗位要求的先后顺序依次补。'));
+    });
+    if (partialSkills.length) {
+      gaps.push(pvItem('「' + skillNames(partialSkills, 4).join('」「') + '」只有关键词，没有使用场景', '半匹配',
+        '这类写法在初筛里约等于「只听过」，面试官会直接判定为不了解；至少挑 1–2 项补成项目里的句子。'));
+    }
+    c.flagged.forEach(function (f) {
+      gaps.push(pvItem('需要确认：' + f.label, '待确认', f.note));
+    });
+    if (!gaps.length) {
+      gaps.push(pvItem('未发现显著能力缺口', '良好', '接下来把精力放在项目深度与业务结果的表达上。'));
+    }
+
+    /* 3. 简历优化方向 */
+    var rs = [];
+    if (failLabels.length) {
+      rs.push(pvItem('门槛项不要指望靠措辞绕过', '先处理',
+        '把简历能证明的部分写到最清楚即可；' + joinedOr(failLabels) + '属于规则门槛，改简历不解决，要靠内推或换岗位。'));
+    }
+    if (missing.length) {
+      rs.push(pvItem('把「' + skillNames(missing, 3).join('」「') + '」从「没提到」变成「有证据」', '优先',
+        '写法：在 X 项目中用这些技能做了 Y，结果是 Z（带一个数字）。没有真实经历就跳过，不要编。'));
+    }
+    if (partialSkills.length) {
+      rs.push(pvItem('把只在技能栏出现的项移到项目段落', '优先',
+        '涉及：' + skillNames(partialSkills, 4).join('、') + '。技能清单里的名词不构成证据。'));
+    }
+    if (c.total && c.coverage < 0.7) {
+      rs.push(pvItem('按 JD 顺序重排技能栏与项目顺序', '建议',
+        '把岗位最靠前的 3 项要求放到最显眼位置，提升初筛关键词命中率（当前覆盖 ' +
+        Math.round(c.coverage * 100) + '%）。'));
+    }
+    rs.push(pvItem('替换泛化表述', '建议',
+      '「负责相关工作」→「负责 X 系统的 Y 模块，指标从 A 到 B」；每条经历至少留一个可核对的数字。'));
+    rs = rs.slice(0, 5);
+
+    /* 4. 投递建议 */
+    var ap = [];
+    if (failLabels.length) {
+      ap.push(pvItem('不要把它当作主投岗位', '策略',
+        '先解决 ' + joinedOr(failLabels) + '；本岗位可尝试内推或直接沟通，确认是否可放宽，否则优先投门槛相近的。'));
+    } else if (c.verdict === 'strong') {
+      ap.push(pvItem('优先投递，尽量 24 小时内发出', '优先', '同时找内推加速：这类岗位简历量大，早投早筛。'));
+    } else if (c.verdict === 'good') {
+      ap.push(pvItem('补强后立刻投', '可投',
+        '先补 ' + (topMissing.length ? '「' + topMissing.join('」「') + '」' : '项目量化描述') + ' 的证据，避免初筛被关键词刷掉。'));
+    } else if (c.verdict === 'moderate') {
+      ap.push(pvItem('谨慎投，先改简历', '谨慎', '缺口明显，改简历的收益大于立刻硬投；改完重新跑一次再决定。'));
+    } else {
+      ap.push(pvItem('暂不作为主投目标', '暂缓', '能力面差距较大，先补核心技能，或换门槛与方向更接近的岗位。'));
+    }
+    if (c.unconstrained != null && failLabels.length && c.unconstrained >= 60) {
+      ap.push(pvItem('能力面够得上，值得争取一次沟通', '机会',
+        '不考虑门槛时综合 ' + c.unconstrained + ' 分。适合走内推、求职信或 HR 直聊，把「能力够」这件事说清楚。'));
+    }
+    if (c.jobPay) {
+      ap.push(pvItem('薪资口径：岗位 ' + moneyRange(c.jobPay),
+        c.prefTarget ? '谈薪' : '薪资',
+        c.prefTarget
+          ? ('你的期望 ' + c.prefTarget + 'K，' + (c.jobPay.max >= c.prefTarget * 0.95
+            ? '区间可覆盖，谈薪时按上限靠。' : '上限偏低，谈薪空间有限，可把总包与其他福利一起谈。'))
+          : '填写「期望月薪」后可以得到更准的薪资匹配判断。'));
+    }
+    if (c.flagged.length) {
+      ap.push(pvItem('提前准备可解释项', '沟通',
+        '涉及：' + c.flagged.map(function (f) { return f.label; }).join('、') +
+        '。主动给出方案（到岗时间、薪资弹性、异地安排），比等对方问更好。'));
+    }
+    if (!c.job.sourceUrl || !c.job.legalEntity) {
+      ap.push(pvItem('投递前核实招聘主体', '风控',
+        '补齐来源链接与法人信息；外包 / 派遣岗位要先确认劳动关系归属。'));
+    }
+    ap = ap.slice(0, 5);
+
+    /* 5. 面试准备 */
+    var pp = [];
+    matchedSkills.slice(0, 2).forEach(function (s) {
+      pp.push(pvItem('准备「' + s.name + '」的 2 分钟案例', '必答',
+        '结构：背景 → 你的动作 → 结果数字 → 复盘。可引用的简历证据：' + clip(s.evidence || s.name, 80)));
+    });
+    if (missing.length) {
+      pp.push(pvItem('预设「不熟 ' + missing[0].name + ' 怎么上手」的回答', '防守',
+        '给学习路径与替代经验（同类技术、相邻问题），不要说「我可以学」就结束。'));
+    }
+    if (partialSkills.length) {
+      pp.push(pvItem('把「' + partialSkills[0].name + '」讲到能落地', '补强',
+        '面试官一定会追问：哪个项目、你负责哪部分、最难的问题是什么。答不出细节会被判为「只了解」。'));
+    }
+    if (c.bestSim < 0.5) {
+      pp.push(pvItem('准备转岗 / 跨行的动机说明', '动机',
+        '讲清能力迁移路径与已做的准备，别只说「想试试」。'));
+    }
+    if (c.softInJd && c.softInJd.length) {
+      pp.push(pvItem('准备一个「' + c.softInJd[0].n + '」的具体例子', '软技能',
+        'JD 明确提到这一点；用一件有阻力、有你推动、有结果的事回答。'));
+    }
+    pp.push(pvItem('准备 2 个反问', '反问',
+      '团队当前最急需解决的问题、这个岗位半年内的成功标准——两个问题都能试探岗位真实需求。'));
+    pp = pp.slice(0, 6);
+
+    /* 结论抬头 */
+    var badge, headline;
+    if (failLabels.length) {
+      badge = { tone: 'weak', label: '先解决门槛' };
+      headline = '门槛卡在「' + joinedOr(failLabels) + '」：' +
+        (c.unconstrained != null ? '能力面 ' + c.unconstrained + ' 分，' : '') +
+        '走常规初筛大概率被筛掉，但值得换一条路径争取。';
+    } else if (c.verdict === 'strong') {
+      badge = { tone: 'strong', label: '优先投递' };
+      headline = '能力与门槛都过关，属于优先投递区间；接下来比的是投递速度与表达质量。';
+    } else if (c.verdict === 'good') {
+      badge = { tone: 'good', label: '补强后投递' };
+      headline = '整体匹配良好' +
+        (topMissing.length ? '，补上「' + topMissing.slice(0, 2).join('」「') + '」的证据会更稳。' : '，可直接投递。');
+    } else if (c.verdict === 'moderate') {
+      badge = { tone: 'moderate', label: '谨慎投递' };
+      headline = '能力面存在明显缺口，改简历的收益大于立刻硬投；先补最关键的 1–2 项。';
+    } else {
+      badge = { tone: 'poor', label: '暂缓投递' };
+      headline = '当前简历与岗位要求差距较大，建议先补核心能力，或换一个方向更接近的岗位。';
+    }
+
+    var summary = '匹配度 ' + c.overall + ' 分（置信度 ' + c.confidence + '%）。' +
+      (failLabels.length
+        ? '硬性条件「' + joinedOr(failLabels) + '」未通过，按规则以 ' + HARD_FAIL_SCORE + ' 分为上限。'
+        : '硬性条件未触发封顶。') +
+      (c.total ? '技能覆盖 ' + Math.round(c.coverage * 100) + '%（' + c.matched + '/' + c.total + ' 项要求）。' : '') +
+      (c.unconstrained != null ? '不考虑硬性条件约束时综合 ' + c.unconstrained + ' 分。' : '') +
+      '这是简历与 JD 的字面契合度，不等于录用概率。';
+
+    return {
+      role: 'candidate',
+      roleLabel: meta.label,
+      badge: badge,
+      headline: headline,
+      summary: summary,
+      sections: [
+        pvSection('advantages', '匹配优势', '面试和简历里优先讲的点', adv),
+        pvSection('gaps', '能力差距', '按影响从大到小排列', gaps),
+        pvSection('resume', '简历优化方向', '按「改了收益最大」排序', rs),
+        pvSection('apply', '投递建议', '投不投、怎么投、怎么谈', ap),
+        pvSection('prep', '面试准备建议', '把证据讲成故事', pp)
+      ]
+    };
+  }
+
+  /* ---------- 面试官视角：胜任度、证据、风险、提问 ---------- */
+  function interviewerView(c) {
+    var meta = perspectiveMeta('interviewer');
+    var matchedSkills = c.skills.filter(function (s) { return s.status === 'matched'; });
+    var partialSkills = c.partialList || [];
+    var missing = c.missing || [];
+    var failLabels = c.failed.map(function (f) { return f.label; });
+    var flagLabels = c.flagged.map(function (f) { return f.label; });
+
+    /* 1. 岗位匹配证据 */
+    var ev = [];
+    (c.fitPoints || []).slice(0, 4).forEach(function (f) {
+      ev.push(pvItem('JD：' + clip(f.req, 88), '已对齐', '简历：' + clip(f.ev, 96)));
+    });
+    var used = {};
+    (c.fitPoints || []).forEach(function (f) { used[f.req] = 1; });
+    matchedSkills.slice(0, 3).forEach(function (s) {
+      if (ev.length >= 5) return;
+      ev.push(pvItem('要求项「' + s.name + '」', '有实践', clip(s.evidence || '简历中有对应描述', 96)));
+    });
+    if (c.years != null && c.jdYears) {
+      ev.push(pvItem('经验年限：约 ' + c.years + ' 年', '可核对',
+        '岗位要求 ' + (c.jdYears.raw || (c.jdYears.min + ' 年以上')) + '。'));
+    }
+    if (!ev.length) {
+      ev.push(pvItem('缺乏可核对的匹配证据', '信息不足',
+        '简历未提供与 JD 要求对应的具体经历，建议先做一轮电话初筛确认。'));
+    }
+
+    /* 2. 风险点 */
+    var rk = [];
+    c.failed.forEach(function (f) {
+      rk.push(pvItem('硬门槛不满足：' + f.label, '高影响', f.note));
+    });
+    c.flagged.forEach(function (f) {
+      rk.push(pvItem('需确认：' + f.label, '中影响', f.note));
+    });
+    if (partialSkills.length) {
+      rk.push(pvItem('「' + skillNames(partialSkills, 4).join('」「') + '」仅关键词，无场景', '中影响',
+        '简历只列了名词，无法判断深度；需面试验证，可能只是「听过」。'));
+    }
+    if (c.expScore != null && c.expScore <= 70 && c.years != null && c.jdYears && c.years > (c.jdYears.max || 0) + 4) {
+      rk.push(pvItem('资历高于岗位区间', '中影响',
+        '经验约 ' + c.years + ' 年，可能带来职级 / 薪资预期落差与留存风险。'));
+    }
+    if (c.total > 14) {
+      rk.push(pvItem('JD 要求项过多（' + c.total + ' 项）', '低影响',
+        '存在一人多岗或 JD 与实际工作不符的可能，建议面试时核对真实职责边界。'));
+    }
+    if (!c.job.sourceUrl && !c.job.legalEntity) {
+      rk.push(pvItem('岗位信息不完整', '低影响',
+        '缺少来源链接与招聘主体，建议先核实岗位与劳动关系归属，再进入面试流程。'));
+    }
+    if (!rk.length) {
+      rk.push(pvItem('未识别到显著风险', '低影响', '仍建议在面试中核对职责边界与团队实际情况。'));
+    }
+
+    /* 3. 面试提问建议 */
+    var qs = [];
+    missing.slice(0, 2).forEach(function (s) {
+      qs.push(pvItem('岗位要用「' + s.name + '」，请讲一次你从零上手陌生技术的经历：当时缺什么、多久能独立产出？',
+        '验证缺口', '观察点：学习路径是否具体、有无可验证产出；对应简历缺口「' + s.name + '」。'));
+    });
+    partialSkills.slice(0, 2).forEach(function (s) {
+      qs.push(pvItem('简历写到「' + s.name + '」，请说明具体在哪个项目、你负责哪部分、最难的问题是什么？',
+        '验证深度', '观察点：能否说出细节与取舍；只背概念则记为「仅了解」。'));
+    });
+    if (c.bestTitle) {
+      qs.push(pvItem('在「' + c.bestTitle + '」这段经历里，你是主导还是参与？团队多少人、哪些决策由你做？',
+        '确认职责', '观察点：区分个人贡献与团队成果，避免把团队成绩算成个人成绩。'));
+    }
+    if (c.bestSim < 0.6) {
+      qs.push(pvItem('从「' + (c.bestTitle || '过往方向') + '」转到「' + (c.job.jobTitle || '本岗位') + '」，哪些能力可直接迁移、哪些要从头学？',
+        '确认方向', '观察点：迁移路径是否清楚、对岗位的认知是否停留在字面。'));
+    }
+    if (c.softInJd && c.softInJd.length) {
+      qs.push(pvItem('JD 提到「' + c.softInJd[0].n + '」，请举一个具体例子：阻力在哪、你怎么推动、结果如何？',
+        '行为面', '观察点：是否有主动性与复盘，而不是只描述流程。'));
+    }
+    if (flagLabels.length) {
+      qs.push(pvItem('确认到岗时间、工作地点与薪资预期是否与岗位一致？',
+        '确认条件', '涉及：' + joinedOr(flagLabels) + '；这三项在 offer 阶段最容易翻车。'));
+    }
+    if (!qs.length) {
+      qs.push(pvItem('请挑一个你最满意的项目，讲清目标、你的角色、关键取舍与最终结果。',
+        '通用', '观察点：结构化表达与结果意识。'));
+    }
+
+    /* 胜任度抬头 */
+    var badge, headline;
+    if (failLabels.length) {
+      badge = { tone: 'weak', label: '门槛不符，慎推进' };
+    } else if (c.verdict === 'strong') {
+      badge = { tone: 'strong', label: '推荐进入面试' };
+    } else if (c.verdict === 'good') {
+      badge = { tone: 'good', label: '可以进入面试' };
+    } else if (c.verdict === 'moderate') {
+      badge = { tone: 'moderate', label: '需重点验证' };
+    } else {
+      badge = { tone: 'poor', label: '不建议推进' };
+    }
+
+    var strongest = matchedSkills.length
+      ? '最强证据是「' + matchedSkills[0].name + '」的实践经历'
+      : '缺少可直接验证的核心技能证据';
+    var biggest = failLabels.length
+      ? '最大风险是「' + joinedOr(failLabels) + '」不满足'
+      : (flagLabels.length ? '最大不确定项是「' + joinedOr(flagLabels) + '」'
+        : (partialSkills.length ? '最大不确定项是「' + partialSkills[0].name + '」只有关键词'
+          : '暂未发现显著风险'));
+    headline = '候选人匹配度 ' + c.overall + ' 分（置信度 ' + c.confidence + '%），' +
+      strongest + '，' + biggest + '。';
+
+    var hcPass = c.hcs.filter(function (h) { return h.status === 'pass'; }).length;
+    var summary = '技术维度 ' + (c.techScore != null ? c.techScore + ' 分' : '证据不足') +
+      '，经验维度 ' + (c.expScore != null ? c.expScore + ' 分' : '证据不足') +
+      (c.total ? '，技能覆盖 ' + Math.round(c.coverage * 100) + '%' : '') + '。' +
+      '硬性条件 ' + hcPass + ' 项通过' +
+      (c.failed.length ? '、' + c.failed.length + ' 项未通过' : '') +
+      (c.flagged.length ? '、' + c.flagged.length + ' 项待确认' : '') + '。' +
+      '建议按下方问题清单做一轮结构化面试，再决定是否推进。';
+
+    return {
+      role: 'interviewer',
+      roleLabel: meta.label,
+      badge: badge,
+      headline: headline,
+      summary: summary,
+      sections: [
+        pvSection('evidence', '岗位匹配证据', '逐条对齐 JD 要求与简历事实', ev),
+        pvSection('risks', '风险点', '按影响从高到低', rk),
+        pvSection('questions', '面试提问建议', '每个问题都附观察点', qs)
+      ]
+    };
+  }
+
+  function buildPerspective(role, ctx) {
+    return normPerspective(role) === 'interviewer' ? interviewerView(ctx) : candidateView(ctx);
+  }
+
   /* ---------------- 主流程 ---------------- */
   function analyze(input) {
     var job = input.job || {};
@@ -535,6 +925,7 @@ window.OfferFitEngine = (function () {
     var dimsCfg = cfg.dims || [];
     var th = cfg.thresholds || { strong: 75, good: 60, moderate: 45 };
     var hard = cfg.hard || {};
+    var role = normPerspective(input.perspective);
     var resumeLower = lower(resume);
 
     /* --- 技能 --- */
@@ -542,6 +933,7 @@ window.OfferFitEngine = (function () {
     var total = skills.length;
     var matched = skills.filter(function (s) { return s.status === 'matched'; }).length;
     var partial = skills.filter(function (s) { return s.status === 'partial'; }).length;
+    var partialList = skills.filter(function (s) { return s.status === 'partial'; });
     var missing = skills.filter(function (s) { return s.status === 'missing'; });
     var coverage = total ? (matched + partial * 0.5) / total : 0;
 
@@ -739,11 +1131,25 @@ window.OfferFitEngine = (function () {
 
     var verdict = verdictOf(overall, th);
 
-    /* --- 结论文案 --- */
+    /* --- 结论文案：同一组事实，按视角换成对应的决策语言 --- */
     var topMissing = missing.slice(0, 4).map(function (s) { return s.name; });
+    var failLabelText = failed.map(function (f) { return f.label; }).join('、');
     var rec;
-    if (failed.length) {
-      rec = '暂不建议优先投递：' + failed.map(function (f) { return f.label; }).join('、') +
+    if (role === 'interviewer') {
+      if (failed.length) {
+        rec = '谨慎推进：' + failLabelText + '未通过硬性门槛，匹配度按规则以 ' + HARD_FAIL_SCORE +
+          ' 分为上限；如岗位可放宽，建议先电话确认再安排面试。';
+      } else if (verdict === 'strong') {
+        rec = '建议进入面试：核心要求覆盖良好，面试重点放在项目深度与结果核验上。';
+      } else if (verdict === 'good') {
+        rec = '可以进入面试：主要条件匹配，建议围绕' + (topMissing.length ? topMissing.slice(0, 2).join('、') : '项目细节') + '设计 1–2 个验证问题。';
+      } else if (verdict === 'moderate') {
+        rec = '建议先电话初筛：存在明显缺口，需确认关键能力是否可迁移后再决定是否面谈。';
+      } else {
+        rec = '暂不建议推进：与岗位核心要求差距较大，可留档备选。';
+      }
+    } else if (failed.length) {
+      rec = '暂不建议优先投递：' + failLabelText +
         '未通过硬性条件，匹配度按规则以 ' + HARD_FAIL_SCORE + ' 分为上限。';
     } else if (verdict === 'strong') {
       rec = '建议优先投递：核心要求覆盖良好，简历可直接投递，仅需微调关键词。';
@@ -839,12 +1245,47 @@ window.OfferFitEngine = (function () {
     advice.push('投递前用岗位名称与核心技能替换简历里的泛化表述（如「负责相关工作」→「负责 X 系统的 Y 模块」）。');
     advice = advice.slice(0, 6);
 
+    /* --- 双视角建议：分数已定，这里只决定「对谁说什么」 --- */
+    var perspective = buildPerspective(role, {
+      job: job,
+      skills: skills,
+      missing: missing,
+      partialList: partialList,
+      total: total,
+      matched: matched,
+      partial: partial,
+      coverage: coverage,
+      hcs: hcs,
+      failed: failed,
+      flagged: flagged,
+      years: ry.years,
+      jdYears: jdYears,
+      expScore: expScore,
+      techScore: techScore,
+      behScore: behScore,
+      careerScore: careerScore,
+      bestTitle: bestTitle,
+      bestSim: bestSim,
+      industryMatch: industryMatch,
+      softInJd: softInJd,
+      overall: overall,
+      unconstrained: unconstrained.score,
+      confidence: confidence,
+      verdict: verdict,
+      jobPay: jobPay,
+      prefTarget: prefTarget,
+      jobCity: jobCity,
+      rc: rc,
+      rEdu: rEdu,
+      jdEdu: jdEdu
+    });
+
     var generatedAt = new Date().toISOString();
     return {
       overallScore: overall,
       unconstrainedScore: unconstrained.score,
       scoreMeta: {
-        contract: 'job-fit@1.2.0',
+        contract: CONTRACT_VERSION,
         // 封顶模式：只降不升（min(加权分, 44)）
         capMode: 'min',
         hardCapApplied: hardCapApplied,
@@ -871,6 +1312,7 @@ window.OfferFitEngine = (function () {
       fitPoints: fitPoints,
       skills: skills,
       advice: advice,
+      perspective: perspective,
       meta: {
         skillCoverage: total ? Math.round(coverage * 100) : null,
         skillTotal: total,
@@ -885,11 +1327,12 @@ window.OfferFitEngine = (function () {
         salary: jobPay,
         engine: input.engine || 'local',
         masked: !!input.masked,
+        perspective: role,
         thresholds: th
       },
       evidence: strengths.slice(0, 3),
       generatedAt: generatedAt,
-      skillVersion: 'job-fit@1.2.0'
+      skillVersion: CONTRACT_VERSION
     };
   }
 
@@ -903,10 +1346,24 @@ window.OfferFitEngine = (function () {
   }
 
   /* ---------------- 模型调用：提示词与契约校验 ---------------- */
-  function buildPrompt(resumeText, job, cfg) {
+  function buildPrompt(resumeText, job, cfg, perspective) {
     var th = (cfg && cfg.thresholds) || { strong: 75, good: 60, moderate: 45 };
     var dims = (cfg && cfg.dims ? cfg.dims : []).filter(function (d) { return d.on !== false; })
       .map(function (d) { return d.label + '(' + d.key + ') 权重 ' + d.weight; }).join('；');
+    var pmeta = perspectiveMeta(perspective);
+    var isInterviewer = pmeta.key === 'interviewer';
+
+    var roleRules = isInterviewer ? [
+      '写作对象是招聘方 / 面试官：用第三人称描述候选人（「候选人」「该候选人」），不要出现「你」。',
+      'perspective 的三个 section 依次为：evidence「岗位匹配证据」、risks「风险点」、questions「面试提问建议」。',
+      '每个提问必须可直接照读，并在 note 里写清观察点（回答里出现什么算通过、什么算红旗）。',
+      '胜任度只表达「是否值得进入下一轮」，不做录用决定，不给薪资谈判建议。'
+    ] : [
+      '写作对象是求职者本人：用第二人称或中性表述，结论必须能直接指导「投不投、怎么改简历、面试怎么准备」。',
+      'perspective 的五个 section 依次为：advantages「匹配优势」、gaps「能力差距」、resume「简历优化方向」、apply「投递建议」、prep「面试准备建议」。',
+      '每条建议要落到可执行动作（改哪一句、准备哪个案例、跟谁沟通），不要写「提升综合能力」这类空话。',
+      '不评判求职者的性格或态度，不承诺录用概率。'
+    ];
 
     var jobLines = [
       '岗位名称：' + job.jobTitle,
@@ -936,14 +1393,24 @@ window.OfferFitEngine = (function () {
       '{"overallScore":number,"unconstrainedScore":number|null,"confidence":number,"verdict":"strong|good|moderate|weak|poor","recommendation":string,"summary":string,' +
       '"dimensions":[{"key":"technical|experience|behavior|career","label":string,"score":number|null,"weight":number,"note":string,"evidence":string[]}],' +
       '"hardConstraints":[{"label":string,"status":"pass|flag|fail|unknown","note":string}],' +
-      '"strengths":string[],"gaps":string[],"risks":string[],"advice":string[],"generatedAt":"ISO-8601","skillVersion":"job-fit@1.2.0"}',
+      '"strengths":string[],"gaps":string[],"risks":string[],"advice":string[],' +
+      '"perspective":{"role":"' + pmeta.key + '","headline":string,"summary":string,"badge":{"label":string},' +
+      '"sections":[{"key":string,"title":string,"items":[{"text":string,"tag":string,"note":string}]}]},' +
+      '"generatedAt":"ISO-8601","skillVersion":"' + CONTRACT_VERSION + '"}',
       '评分规则：overallScore 为 0-100 的加权总分，按已启用维度权重加权；某维度 score 为 null 时按其余已知权重重新归一化；' +
       'confidence 等于已知维度权重之和（0-100）。' +
       '任一项硬性条件 status 为 fail 时，overallScore 取 min(加权总分, ' + HARD_FAIL_SCORE + ')（只降不升）。',
       'unconstrainedScore 为「不考虑硬性条件约束的综合评分」：与 overallScore 使用同一套全维度加权计算，' +
       '只是不施加硬性门槛封顶，因此任何硬性条件 fail 都不得影响该分值；没有任何维度可评分时输出 null。',
       '判定阈值：strong ≥ ' + th.strong + '，good ≥ ' + th.good + '，moderate ≥ ' + th.moderate + '，更低为 weak/poor。',
-      '启用的维度与权重：' + (dims || '技术30/经验25/协作15/方向30') + '。硬性条件（地点、经验、学历、技能覆盖、薪资）只做通过/存疑/不通过判断，不计入加权。'
+      '启用的维度与权重：' + (dims || '技术30/经验25/协作15/方向30') + '。硬性条件（地点、经验、学历、技能覆盖、薪资）只做通过/存疑/不通过判断，不计入加权。',
+      '本次报告的使用者：' + pmeta.label + '。' + pmeta.desc,
+      roleRules.join('\n'),
+      'perspective 内部要求：headline 用一句话点明核心矛盾或结论；summary 用 2–3 句说明依据；' +
+      '每个 section 的 items 不超过 6 条，tag 不超过 6 个字（如「强证据」「缺口」「验证深度」），note 写观察点或可执行动作。' +
+      'sections 的 key 与顺序必须与上面指定的一致，标题用中文。',
+      '视角只改变措辞与建议组织：无论选择哪种视角，overallScore、unconstrainedScore、dimensions、hardConstraints、verdict ' +
+      '必须完全一致，不得因视角调整分数、维度分或判定，也不得新增简历中没有的事实。'
     ].join('\n');
 
     var user = [
@@ -1203,6 +1670,21 @@ window.OfferFitEngine = (function () {
     ['strengths', 'gaps'].forEach(function (k) {
       if (!Array.isArray(data[k])) errs.push(k + ' 必须是数组');
     });
+    // perspective 为 1.3.0 新增字段：旧结果或模型漏写时不判失败，由本地兜底
+    if (data.perspective !== undefined && data.perspective !== null) {
+      var p = data.perspective;
+      if (typeof p !== 'object' || Array.isArray(p)) errs.push('perspective 必须是对象');
+      else {
+        if (p.role !== undefined && p.role !== 'candidate' && p.role !== 'interviewer') errs.push('perspective.role 取值非法');
+        if (p.sections !== undefined) {
+          if (!Array.isArray(p.sections)) errs.push('perspective.sections 必须是数组');
+          else p.sections.forEach(function (s, i) {
+            if (!s || typeof s !== 'object') { errs.push('perspective.sections[' + i + '] 非法'); return; }
+            if (s.items !== undefined && !Array.isArray(s.items)) errs.push('perspective.sections[' + i + '].items 必须是数组');
+          });
+        }
+      }
+    }
     if (errs.length) throw new Error('返回结构不符合契约：' + errs.slice(0, 3).join('；'));
     return data;
   }
@@ -1210,9 +1692,13 @@ window.OfferFitEngine = (function () {
   return {
     analyze: analyze,
     buildPrompt: buildPrompt,
+    buildPerspective: buildPerspective,
     extractJSON: extractJSON,
     validateContract: validateContract,
     verdictOf: verdictOf,
+    perspectiveMeta: perspectiveMeta,
+    PERSPECTIVES: PERSPECTIVES,
+    CONTRACT_VERSION: CONTRACT_VERSION,
     HARD_FAIL_SCORE: HARD_FAIL_SCORE,
     clampScore: clampScore,
     unconstrainedOf: unconstrainedOf,

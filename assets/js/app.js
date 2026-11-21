@@ -29,11 +29,13 @@
     maskSend: true,
     keepHist: false,
     outfmt: 'detailed',
+    perspective: 'candidate',
     dims: [],
     thresholds: { strong: 75, good: 60, moderate: 45 },
     hard: { location: true, experience: true, education: true, skills: true, salary: true },
     prefs: { city: '', salary: '' },
     result: null,
+    resultSig: '',
     history: [],
     busy: false
   };
@@ -56,6 +58,7 @@
     renderDims();
     bind();
     syncSettingsUI();
+    syncPerspectiveUI();
     updateWeightSum();
     updateEngineUI();
     updateCounts();
@@ -102,6 +105,7 @@
       Object.keys(S.hard).forEach(function (k) { if (typeof c.hard[k] === 'boolean') S.hard[k] = c.hard[k]; });
     }
     if (c.outfmt && ['detailed', 'brief', 'json'].indexOf(c.outfmt) !== -1) S.outfmt = c.outfmt;
+    if (c.perspective === 'candidate' || c.perspective === 'interviewer') S.perspective = c.perspective;
     if (typeof c.maskSend === 'boolean') S.maskSend = c.maskSend;
     if (typeof c.keepHist === 'boolean') S.keepHist = c.keepHist;
   }
@@ -112,6 +116,7 @@
       thresholds: S.thresholds,
       hard: S.hard,
       outfmt: S.outfmt,
+      perspective: S.perspective,
       maskSend: S.maskSend,
       keepHist: S.keepHist
     };
@@ -210,6 +215,16 @@
     $$('input[name=engine]').forEach(function (r) {
       r.addEventListener('change', function () { S.engine = r.value; updateEngineUI(); });
     });
+
+    // 分析视角：只改变报告口径，不参与打分
+    $$('input[name=perspective]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        S.perspective = r.value === 'interviewer' ? 'interviewer' : 'candidate';
+        saveConfig();
+        syncPerspectiveUI();
+        refreshPerspective();
+      });
+    });
     $('apiNoKey').addEventListener('change', function () {
       var noKey = this.checked;
       $('apiKey').disabled = noKey;
@@ -257,9 +272,11 @@
       S.thresholds = { strong: 75, good: 60, moderate: 45 };
       S.hard = { location: true, experience: true, education: true, skills: true, salary: true };
       S.outfmt = 'detailed';
+      S.perspective = 'candidate';
       S.maskSend = true;
       renderDims();
       syncSettingsUI();
+      syncPerspectiveUI();
       updateWeightSum();
       saveConfig();
       clearFieldError('err-weights');
@@ -367,6 +384,62 @@
     $('runHint').textContent = api
       ? 'AI 模型 API · 需要密钥 · 速度取决于接口'
       : '本地引擎 · 无需密钥 · 约 1 秒完成';
+  }
+
+  /* ================= 分析视角 ================= */
+  function pmeta() { return E.perspectiveMeta(S.perspective); }
+
+  function syncPerspectiveUI() {
+    var m = pmeta();
+    $$('input[name=perspective]').forEach(function (r) { r.checked = r.value === m.key; });
+    var hint = $('roleHint');
+    if (hint) hint.textContent = m.desc;
+    var btn = $('btnAnalyzeTxt');
+    if (btn && !S.busy && S.result) btn.textContent = '按' + m.label + '重新分析';
+    else if (btn && !S.busy) btn.textContent = '开始匹配分析';
+  }
+
+  // 输入指纹：视角切换时，只有输入没变才敢在已有结果上就地重算建议
+  function inputSignature() {
+    var resume = S.resumeRaw;
+    return JSON.stringify({
+      job: collectJob(),
+      cfg: collectConfig(),
+      prefs: { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() },
+      resume: resume.length + '|' + resume.slice(0, 32) + '|' + resume.slice(-32)
+    });
+  }
+
+  function refreshPerspective() {
+    if (!S.result) return;
+    var m = pmeta();
+    if (inputSignature() !== S.resultSig) {
+      $('runHint').textContent = '已切换为「' + m.label + '」，重新分析后报告会按该视角生成';
+      return;
+    }
+    try {
+      var local = E.analyze({
+        resume: S.resumeRaw,
+        job: collectJob(),
+        prefs: { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() },
+        config: collectConfig(),
+        engine: 'local',
+        perspective: S.perspective
+      });
+      // 只换视角相关文案，分数与证据保持原样
+      S.result.perspective = local.perspective;
+      S.result.recommendation = local.recommendation;
+      if (S.result.meta) S.result.meta.perspective = m.key;
+      renderPerspective(S.result.perspective);
+      $('rec').textContent = S.result.recommendation || '—';
+      $('jsonOut').textContent = JSON.stringify(toContract(S.result), null, 2);
+      applyFormat();
+      $('runHint').textContent = (S.result.meta && S.result.meta.engine === 'api' ? 'AI 模型 · ' : '本地引擎 · ') +
+        '已切换为「' + m.label + '」，建议段落已更新（分数不变）';
+      if (S.keepHist) pushHistory(S.result);
+    } catch (e) {
+      $('runHint').textContent = '已切换为「' + m.label + '」，重新分析后报告会按该视角生成';
+    }
   }
 
   function toggleKey() {
@@ -651,7 +724,10 @@
       var prefs = { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() };
       setTimeout(function () {
         try {
-          var r = E.analyze({ resume: S.resumeRaw, job: job, prefs: prefs, config: cfg, engine: 'local' });
+          var r = E.analyze({
+            resume: S.resumeRaw, job: job, prefs: prefs, config: cfg,
+            engine: 'local', perspective: S.perspective
+          });
           finish(r, t0);
         } catch (err) {
           setBusy(false);
@@ -845,7 +921,7 @@
       showAlert([{ msg: '脱敏后简历内容为空，请关闭「发送前脱敏」或检查简历。', target: 'resumeText' }]);
       return;
     }
-    var messages = E.buildPrompt(resumeForModel, job, cfg);
+    var messages = E.buildPrompt(resumeForModel, job, cfg, S.perspective);
     // 输出格式不合规时，追加一条强硬约束再请求一次（只重试一次）
     var STRICT = {
       role: 'system',
@@ -859,7 +935,10 @@
         var data = E.extractJSON(content);
         E.validateContract(data);
         var prefs = { city: $('prefCity').value.trim(), salary: $('prefSalary').value.trim() };
-        var local = E.analyze({ resume: S.resumeRaw, job: job, prefs: prefs, config: cfg, engine: 'local' });
+        var local = E.analyze({
+          resume: S.resumeRaw, job: job, prefs: prefs, config: cfg,
+          engine: 'local', perspective: S.perspective
+        });
         var r = normalizeApiResult(data, local, job, cfg);
         finish(r, t0);
       });
@@ -879,6 +958,41 @@
       else if (/JSON|解析|Unexpected|position|截断|对象|契约|结构/.test(err.message || '')) extra = ' 已自动重试一次；若仍失败，可换用输出更稳定的模型，或先切回本地引擎得到结果。';
       showAlert([{ msg: (err && err.message ? err.message : '模型调用失败') + extra }]);
     });
+  }
+
+  // 模型只负责措辞：结构、badge 与分数仍以本地计算结果为准，
+  // 避免模型换了视角就把结论说岔（例如把「慎推进」写成「强烈推荐」）。
+  function mergePerspective(local, api) {
+    if (!local) return null;
+    var out = JSON.parse(JSON.stringify(local));
+    if (!api || typeof api !== 'object') return out;
+    if (typeof api.headline === 'string' && api.headline.trim()) out.headline = api.headline.trim();
+    if (typeof api.summary === 'string' && api.summary.trim()) out.summary = api.summary.trim();
+    var byKey = {};
+    (Array.isArray(api.sections) ? api.sections : []).forEach(function (s) {
+      if (s && s.key) byKey[s.key] = s;
+    });
+    out.sections = out.sections.map(function (sec) {
+      var s = byKey[sec.key];
+      if (!s || !Array.isArray(s.items)) return sec;
+      var items = s.items.filter(function (x) {
+        return x && typeof x.text === 'string' && x.text.trim();
+      }).slice(0, 6).map(function (x) {
+        return {
+          text: String(x.text).trim(),
+          tag: String(x.tag || '').slice(0, 8),
+          note: String(x.note || '').trim()
+        };
+      });
+      if (!items.length) return sec;
+      return {
+        key: sec.key,
+        title: (s.title && String(s.title).trim()) || sec.title,
+        hint: sec.hint,
+        items: items
+      };
+    });
+    return out;
   }
 
   function normalizeApiResult(data, local, job, cfg) {
@@ -914,7 +1028,7 @@
       overallScore: overall,
       unconstrainedScore: unc.score == null ? null : base,
       scoreMeta: {
-        contract: data.skillVersion || 'job-fit@1.2.0',
+        contract: data.skillVersion || E.CONTRACT_VERSION,
         capMode: 'min',
         hardCapApplied: hardFails.length > 0,
         hardCap: E.HARD_FAIL_SCORE,
@@ -930,7 +1044,7 @@
       },
       confidence: Math.max(0, Math.min(100, Math.round(Number(data.confidence)))),
       verdict: E.verdictOf(overall, th),
-      recommendation: data.recommendation || '',
+      recommendation: data.recommendation || local.recommendation || '',
       summary: summary,
       dimensions: dims,
       hardConstraints: hardList,
@@ -938,17 +1052,19 @@
       gaps: (data.gaps || []).filter(Boolean),
       risks: (data.risks || []).filter(Boolean),
       advice: (data.advice || []).filter(Boolean),
+      perspective: mergePerspective(local.perspective, data.perspective),
       fitPoints: local.fitPoints,
       skills: local.skills,
       evidence: (data.evidence || []).slice(0, 3),
       meta: Object.assign({}, local.meta, {
         engine: 'api',
         masked: S.maskSend,
+        perspective: S.perspective,
         model: $('apiModel').value.trim(),
-        note: '叙述与评分由模型生成；技能矩阵与硬性项由本地规则同步核验，用于交叉检查。'
+        note: '叙述与评分由模型生成；技能矩阵、硬性项与视角结构由本地规则同步核验，用于交叉检查。'
       }),
       generatedAt: data.generatedAt || new Date().toISOString(),
-      skillVersion: data.skillVersion || 'job-fit@1.2.0'
+      skillVersion: data.skillVersion || E.CONTRACT_VERSION
     };
   }
 
@@ -974,9 +1090,11 @@
     var ms = ((window.performance && performance.now ? performance.now() : Date.now()) - t0);
     r.job = collectJob();
     S.result = r;
+    S.resultSig = inputSignature();
     setBusy(false);
-    $('runHint').textContent = (r.meta.engine === 'api' ? 'AI 模型 · ' : '本地引擎 · ') +
-      '完成，用时 ' + (ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(1) + ' s');
+    syncPerspectiveUI();
+    $('runHint').textContent = (r.meta.engine === 'api' ? 'AI 模型 · ' : '本地引擎 · ') + pmeta().label +
+      ' · 完成，用时 ' + (ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(1) + ' s');
     render(r);
     var res = $('results');
     res.hidden = false;
@@ -1091,6 +1209,9 @@
     $('adviceList').innerHTML = (r.advice || []).map(function (a) { return '<li>' + esc(safe(a)) + '</li>'; }).join('')
       || '<li>暂无额外建议。</li>';
 
+    // 视角（求职者 / 面试官）
+    renderPerspective(r.perspective);
+
     // JSON
     $('jsonOut').textContent = JSON.stringify(toContract(r), null, 2);
 
@@ -1099,13 +1220,52 @@
     else { rn.textContent = ''; rn.hidden = true; }
   }
 
+  function renderPerspective(pv) {
+    var box = $('perspectivePanel');
+    if (!box) return;
+    if (!pv) { box.hidden = true; return; }
+    var m = E.perspectiveMeta(pv.role);
+    $('pvTopic').textContent = pv.roleLabel || m.label;
+    $('pvTopic').setAttribute('data-role', m.key);
+    $('pvTopic').title = m.desc;
+
+    var tone = V[(pv.badge && pv.badge.tone)] || V.moderate;
+    var b = $('pvBadge');
+    b.textContent = (pv.badge && pv.badge.label) || '—';
+    b.style.color = tone.color;
+    b.style.background = tone.soft;
+
+    $('pvHeadline').textContent = pv.headline || '';
+    $('pvSummary').textContent = pv.summary || '';
+
+    $('pvSections').innerHTML = (pv.sections || []).map(function (sec) {
+      var items = (sec.items || []).map(function (it) {
+        return '<li class="pvitem">' +
+          (it.tag ? '<span class="pvtag">' + esc(it.tag) + '</span>' : '') +
+          '<div class="pvitem__b">' +
+          '<p class="pvitem__t">' + esc(safe(it.text)) + '</p>' +
+          (it.note ? '<p class="pvitem__n">' + esc(safe(it.note)) + '</p>' : '') +
+          '</div></li>';
+      }).join('');
+      return '<section class="pvsec">' +
+        '<h4>' + esc(sec.title) + '</h4>' +
+        (sec.hint ? '<p class="pvsec__h">' + esc(sec.hint) + '</p>' : '') +
+        '<ul class="pvlist">' + items + '</ul></section>';
+    }).join('');
+    box.hidden = false;
+  }
+
   function applyFormat() {
     var detailed = S.outfmt === 'detailed';
     var json = S.outfmt === 'json';
+    var role = (S.result && S.result.perspective && S.result.perspective.role) || S.perspective;
+    var isInterviewer = role === 'interviewer';
     $('skillPanel').hidden = !detailed;
-    $('advicePanel').hidden = !detailed;
+    // 「改进建议」是写给求职者的，面试官视角下收起（数据仍保留在 JSON 里）
+    $('advicePanel').hidden = !detailed || isInterviewer;
     $('fitGrid').hidden = !detailed;
     $('jsonPanel').hidden = !json;
+    $('perspectivePanel').hidden = json || !S.result;
     var note = S.result && S.result.meta && S.result.meta.note;
     $('resNote').hidden = !note;
   }
@@ -1129,6 +1289,23 @@
       gaps: (r.gaps || []).map(safe),
       risks: (r.risks || []).map(safe),
       advice: (r.advice || []).map(safe),
+      perspective: r.perspective ? {
+        role: r.perspective.role,
+        roleLabel: r.perspective.roleLabel,
+        badge: r.perspective.badge || null,
+        headline: safe(r.perspective.headline),
+        summary: safe(r.perspective.summary),
+        sections: (r.perspective.sections || []).map(function (s) {
+          return {
+            key: s.key,
+            title: s.title,
+            hint: s.hint || '',
+            items: (s.items || []).map(function (it) {
+              return { text: safe(it.text), tag: it.tag || '', note: safe(it.note) };
+            })
+          };
+        })
+      } : null,
       evidence: r.evidence || [],
       skillMatrix: (r.skills || []).map(function (s) {
         return { name: s.name, status: s.status, evidence: s.evidence, note: s.note };
@@ -1176,11 +1353,26 @@
     L.push('- 岗位：' + job.jobTitle + ' @ ' + job.company);
     L.push('- 地点：' + job.location + '　薪资：' + job.salary);
     L.push('- 匹配度：' + r.overallScore + '/100（' + (V[r.verdict] || V.moderate).label + '，置信度 ' + r.confidence + '%）');
+    L.push('- 分析视角：' + ((r.perspective && r.perspective.roleLabel) || '求职者视角') + '（视角只影响建议措辞，不参与打分）');
     L.push('- 不考虑硬性条件约束的综合评分：' + (r.unconstrainedScore == null ? '无法计算（维度证据不足）' : r.unconstrainedScore + '/100') +
       '（全维度加权，未应用硬性条件封顶）');
     L.push('- 引擎：' + (r.meta.engine === 'api' ? 'AI 模型（' + (r.meta.model || '') + '）' : '本地规则') + (r.meta.masked ? '，简历已脱敏' : ''));
     L.push('- 生成时间：' + new Date(r.generatedAt).toLocaleString('zh-CN'));
     L.push('', '## 结论', r.recommendation, '', r.summary, '');
+
+    var pv = r.perspective;
+    if (pv) {
+      L.push('## ' + (pv.roleLabel || '视角建议') + (pv.badge && pv.badge.label ? '：' + pv.badge.label : ''), '');
+      if (pv.headline) L.push('**' + pv.headline + '**', '');
+      if (pv.summary) L.push(pv.summary, '');
+      (pv.sections || []).forEach(function (s) {
+        L.push('### ' + s.title, '');
+        (s.items || []).forEach(function (it) {
+          L.push('- ' + (it.tag ? '【' + it.tag + '】' : '') + it.text + (it.note ? '　—　' + it.note : ''));
+        });
+        L.push('');
+      });
+    }
     L.push('## 维度评分', '| 维度 | 分数 | 权重 | 说明 |', '| --- | --- | --- | --- |');
     r.dimensions.forEach(function (d) {
       L.push('| ' + d.label + ' | ' + (d.score == null ? '证据不足' : d.score) + ' | ' + d.weight + ' | ' + cell(d.note) + ' |');
@@ -1203,9 +1395,11 @@
     L.push('', '## 改进建议');
     (r.advice || []).forEach(function (a, i) { L.push((i + 1) + '. ' + a); });
     L.push('', '---', '> 由 OfferFit 在浏览器本地生成。简历与密钥未上传至任何服务器；若使用 AI 模式，' +
-      (r.meta.masked ? '发送内容已脱敏。' : '发送内容未脱敏。'));
+      (r.meta.masked ? '发送内容已脱敏。' : '发送内容未脱敏。') +
+      ' 视角只组织建议的表达方式，匹配度与维度分与视角无关。');
 
-    var name = '匹配分析_' + (job.company || '公司') + '_' + (job.jobTitle || '岗位') + '_' +
+    var roleShort = (pv && pv.role === 'interviewer') ? '面试官视角' : '求职者视角';
+    var name = '匹配分析_' + roleShort + '_' + (job.company || '公司') + '_' + (job.jobTitle || '岗位') + '_' +
       new Date().toISOString().slice(0, 10) + '.md';
     name = name.replace(/[\\/:*?"<>|]/g, '_');
     var blob = new Blob([P.maskPlain(L.join('\n'))], { type: 'text/markdown;charset=utf-8' });
@@ -1232,6 +1426,27 @@
   var TAG_MAP = { matched: ['tag--ok', '有实践'], partial: ['tag--part', '仅关键词'], missing: ['tag--miss', '缺失'] };
 
   // 存进 sessionStorage 的完整结果（不含简历原文，证据已脱敏）
+  function serializePerspective(pv) {
+    if (!pv) return null;
+    return {
+      role: pv.role,
+      roleLabel: pv.roleLabel,
+      badge: pv.badge || null,
+      headline: safe(pv.headline),
+      summary: safe(pv.summary),
+      sections: (pv.sections || []).map(function (s) {
+        return {
+          key: s.key,
+          title: s.title,
+          hint: s.hint || '',
+          items: (s.items || []).map(function (it) {
+            return { text: safe(it.text), tag: it.tag || '', note: safe(it.note) };
+          })
+        };
+      })
+    };
+  }
+
   function serializeResult(r) {
     return {
       overallScore: r.overallScore,
@@ -1254,6 +1469,7 @@
       gaps: (r.gaps || []).map(safe),
       risks: (r.risks || []).map(safe),
       advice: (r.advice || []).map(safe),
+      perspective: serializePerspective(r.perspective),
       fitPoints: (r.fitPoints || []).map(function (f) { return { req: safe(f.req), ev: safe(f.ev) }; }),
       skills: (r.skills || []).map(function (x) {
         return { name: x.name, status: x.status, evidence: safe(x.evidence || ''), note: safe(x.note || '') };
@@ -1320,12 +1536,14 @@
       var v = V[h.result.verdict] || V.moderate;
       var loc = [h.job.location, h.job.salary].filter(Boolean).join(' · ');
       var eng = (h.result.meta && h.result.meta.engine === 'api') ? 'AI 模型' : '本地引擎';
+      var role = (h.result.perspective && h.result.perspective.roleLabel) || '求职者视角';
       var at = new Date(h.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
       return '<li><button type="button" class="histitem" data-idx="' + i + '">' +
         '<span class="histitem__main">' +
         '<span class="histitem__t">' + esc(h.job.jobTitle || '未命名岗位') + ' · ' + esc(h.job.company || '未知公司') + '</span>' +
         '<span class="histitem__m">' +
         (loc ? '<span>' + esc(loc) + '</span>' : '') +
+        '<span>' + esc(role) + '</span>' +
         '<span>' + eng + '</span>' +
         '<span>' + esc(at) + '</span>' +
         '</span></span>' +
@@ -1385,6 +1603,28 @@
     if (r.recommendation) out.push('<p class="drec">' + esc(r.recommendation) + '</p>');
     if (r.summary) out.push('<p class="dsum">' + esc(r.summary) + '</p>');
     out.push('</section>');
+
+    // 2.5) 视角建议（求职者 / 面试官）
+    if (r.perspective && (r.perspective.sections || []).length) {
+      var pv = r.perspective;
+      var pvTone = V[(pv.badge && pv.badge.tone)] || V.moderate;
+      out.push('<section class="dsec"><h4>' + esc(pv.roleLabel || '视角建议') + '</h4>');
+      out.push('<p class="drec">' + esc(pv.headline || '') +
+        (pv.badge && pv.badge.label
+          ? ' <span class="dtag" style="color:' + pvTone.color + ';background:' + pvTone.soft + '">' + esc(pv.badge.label) + '</span>'
+          : '') +
+        '</p>');
+      if (pv.summary) out.push('<p class="dsum">' + esc(pv.summary) + '</p>');
+      pv.sections.forEach(function (s) {
+        out.push('<h5 class="dsub">' + esc(s.title) + '</h5><ul class="bullets">');
+        (s.items || []).forEach(function (it) {
+          out.push('<li>' + (it.tag ? '<b>' + esc(it.tag) + '</b> · ' : '') + esc(it.text) +
+            (it.note ? '<br><span class="qt">' + esc(it.note) + '</span>' : '') + '</li>');
+        });
+        out.push('</ul>');
+      });
+      out.push('</section>');
+    }
 
     // 3) 维度
     if ((r.dimensions || []).length) {
@@ -1461,9 +1701,10 @@
     // 10) 元信息
     out.push('<section class="dsec"><h4>分析元信息</h4><dl class="kv">' +
       '<div><dt>引擎</dt><dd>' + (m.engine === 'api' ? 'AI 模型' + (m.model ? '（' + esc(m.model) + '）' : '') : '本地规则引擎') + '</dd></div>' +
+      '<div><dt>分析视角</dt><dd>' + esc((r.perspective && r.perspective.roleLabel) || '求职者视角') + '</dd></div>' +
       '<div><dt>发送前脱敏</dt><dd>' + (m.masked ? '已脱敏' : '未脱敏') + '</dd></div>' +
       '<div><dt>生成时间</dt><dd>' + esc(new Date(h.at).toLocaleString('zh-CN')) + '</dd></div>' +
-      '<div><dt>契约版本</dt><dd>' + esc(r.skillVersion || 'job-fit@1.2.0') + '</dd></div>' +
+      '<div><dt>契约版本</dt><dd>' + esc(r.skillVersion || E.CONTRACT_VERSION) + '</dd></div>' +
       (h.prefs && (h.prefs.city || h.prefs.salary)
         ? '<div class="kv--full"><dt>求职偏好</dt><dd>' + esc([h.prefs.city, h.prefs.salary].filter(Boolean).join(' · ')) + '</dd></div>'
         : '') +
@@ -1503,6 +1744,12 @@
     if (h.prefs) {
       $('prefCity').value = h.prefs.city || '';
       $('prefSalary').value = h.prefs.salary || '';
+    }
+    // 记录里用的视角一并带回，避免「载入后视角对不上」
+    if (h.result && h.result.perspective && h.result.perspective.role) {
+      S.perspective = h.result.perspective.role === 'interviewer' ? 'interviewer' : 'candidate';
+      saveConfig();
+      syncPerspectiveUI();
     }
     updateCounts();
     closeHist();
@@ -1548,6 +1795,7 @@
     S.fileName = '';
     S.apiKey = '';
     S.result = null;
+    S.resultSig = '';
     S.history = [];
     S.masked = true;
     S.shield = true;
@@ -1576,6 +1824,7 @@
     S.thresholds = { strong: 75, good: 60, moderate: 45 };
     S.hard = { location: true, experience: true, education: true, skills: true, salary: true };
     S.outfmt = 'detailed';
+    S.perspective = 'candidate';
     S.maskSend = true;
     S.keepHist = false;
     S.engine = 'local';
@@ -1588,6 +1837,7 @@
     switchTab('paste');
     renderDims();
     syncSettingsUI();
+    syncPerspectiveUI();
     updateWeightSum();
     updateCounts();
     updateShield();
@@ -1610,6 +1860,7 @@
     $('optMaskSend').checked = S.maskSend;
     $('optKeep').checked = S.keepHist;
     $$('input[name=outfmt]').forEach(function (r) { r.checked = r.value === S.outfmt; });
+    $$('input[name=perspective]').forEach(function (r) { r.checked = r.value === S.perspective; });
   }
 
   function normalizeWeights() {

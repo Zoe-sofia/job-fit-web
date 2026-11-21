@@ -62,6 +62,9 @@ const CFG = {
 test('契约版本与常量', () => {
   const { engine } = load();
   assert.equal(engine.HARD_FAIL_SCORE, 44);
+  assert.equal(engine.CONTRACT_VERSION, 'job-fit@1.3.0');
+  assert.equal(engine.PERSPECTIVES.length, 2);
+  assert.equal(engine.PERSPECTIVES.map((p) => p.key).join(','), 'candidate,interviewer');
   assert.equal(engine.DEFAULT_DIMS.length, 4);
   assert.equal(engine.DEFAULT_DIMS.reduce((s, d) => s + d.weight, 0), 100);
 });
@@ -69,13 +72,79 @@ test('契约版本与常量', () => {
 test('完整输入产出合法结构', () => {
   const { engine } = load();
   const r = engine.analyze({ job: JOB, resume: RESUME, prefs: { city: '深圳', salary: '30K' }, config: CFG });
-  assert.equal(r.skillVersion, 'job-fit@1.2.0');
+  assert.equal(r.skillVersion, 'job-fit@1.3.0');
   assert.ok(r.overallScore >= 0 && r.overallScore <= 100);
   assert.ok(['strong', 'good', 'moderate', 'weak', 'poor'].includes(r.verdict));
   assert.equal(r.dimensions.length, 4);
   assert.equal(r.hardConstraints.length, 5);
   assert.ok(Array.isArray(r.advice) && r.advice.length > 0);
   assert.ok(r.scoreMeta && r.scoreMeta.capMode === 'min');
+});
+
+test('默认求职者视角：优势 / 差距 / 简历 / 投递 / 面试五段', () => {
+  const { engine } = load();
+  const r = engine.analyze({ job: JOB, resume: RESUME, prefs: { city: '深圳', salary: '30K' }, config: CFG });
+  assert.equal(r.perspective.role, 'candidate');
+  assert.equal(r.perspective.roleLabel, '求职者视角');
+  assert.equal(r.perspective.sections.map((s) => s.key).join(','), 'advantages,gaps,resume,apply,prep');
+  r.perspective.sections.forEach((s) => {
+    assert.ok(s.title && s.items.length > 0, `${s.key} 应有条目`);
+    s.items.forEach((it) => assert.ok(it.text && it.text.length > 0));
+  });
+  assert.ok(r.perspective.badge && r.perspective.badge.label, '应给出投递档位');
+  assert.ok(r.perspective.headline.includes('门槛') || r.perspective.headline.length > 8);
+});
+
+test('面试官视角：证据 / 风险 / 提问，且提问带观察点', () => {
+  const { engine } = load();
+  const r = engine.analyze({
+    job: JOB, resume: RESUME, prefs: { city: '深圳', salary: '30K' }, config: CFG, perspective: 'interviewer'
+  });
+  assert.equal(r.perspective.role, 'interviewer');
+  assert.equal(r.perspective.sections.map((s) => s.key).join(','), 'evidence,risks,questions');
+  const qs = r.perspective.sections.find((s) => s.key === 'questions');
+  assert.ok(qs.items.length > 0);
+  assert.ok(qs.items.every((q) => q.note.length > 0), '每个提问都要有观察点');
+  assert.ok(r.perspective.badge.label);
+});
+
+test('视角只改措辞：分数、维度、硬性条件完全一致', () => {
+  const { engine } = load();
+  const base = { job: JOB, resume: RESUME, prefs: { city: '深圳', salary: '30K' }, config: CFG };
+  const a = engine.analyze({ ...base, perspective: 'candidate' });
+  const b = engine.analyze({ ...base, perspective: 'interviewer' });
+  assert.equal(a.overallScore, b.overallScore);
+  assert.equal(a.unconstrainedScore, b.unconstrainedScore);
+  assert.equal(a.confidence, b.confidence);
+  assert.equal(a.verdict, b.verdict);
+  assert.equal(
+    a.dimensions.map((d) => d.key + ':' + d.score + '/' + d.weight).join('|'),
+    b.dimensions.map((d) => d.key + ':' + d.score + '/' + d.weight).join('|')
+  );
+  assert.equal(
+    a.hardConstraints.map((h) => h.label + ':' + h.status).join('|'),
+    b.hardConstraints.map((h) => h.label + ':' + h.status).join('|')
+  );
+  assert.ok(a.recommendation && b.recommendation);
+});
+
+test('契约校验：perspective 可缺失，但非法结构要被拒绝', () => {
+  const { engine } = load();
+  const r = engine.analyze({ job: JOB, resume: RESUME, prefs: {}, config: CFG });
+  const base = {
+    overallScore: r.overallScore,
+    unconstrainedScore: r.unconstrainedScore,
+    confidence: r.confidence,
+    verdict: r.verdict,
+    dimensions: r.dimensions,
+    hardConstraints: r.hardConstraints,
+    strengths: r.strengths,
+    gaps: r.gaps
+  };
+  assert.doesNotThrow(() => engine.validateContract({ ...base }), '旧版结果（无 perspective）应继续可用');
+  assert.doesNotThrow(() => engine.validateContract({ ...base, perspective: r.perspective }));
+  assert.throws(() => engine.validateContract({ ...base, perspective: { role: 'hr' } }), /perspective/);
+  assert.throws(() => engine.validateContract({ ...base, perspective: { sections: 'x' } }), /perspective/);
 });
 
 test('硬性条件 fail 时封顶 44，且只降不升', () => {
